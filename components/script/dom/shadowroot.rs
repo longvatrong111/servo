@@ -59,6 +59,9 @@ pub(crate) struct ShadowRoot {
 
     /// <https://dom.spec.whatwg.org/#dom-shadowroot-clonable>
     clonable: bool,
+
+    /// <https://dom.spec.whatwg.org/#shadowroot-declarative>
+    declarative: bool,
 }
 
 impl ShadowRoot {
@@ -87,6 +90,7 @@ impl ShadowRoot {
             window: Dom::from_ref(document.window()),
             mode,
             clonable,
+            declarative: false,
         }
     }
 
