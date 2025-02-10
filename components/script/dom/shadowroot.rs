@@ -65,6 +65,9 @@ pub(crate) struct ShadowRoot {
 
     /// <https://dom.spec.whatwg.org/#dom-shadowroot-clonable>
     clonable: bool,
+
+    /// <https://dom.spec.whatwg.org/#shadowroot-declarative>
+    declarative: bool,
 }
 
 impl ShadowRoot {
@@ -95,6 +98,7 @@ impl ShadowRoot {
             mode,
             slot_assignment_mode,
             clonable,
+            declarative: false,
         }
     }
 

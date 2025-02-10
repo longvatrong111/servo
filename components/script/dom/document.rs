@@ -507,6 +507,8 @@ pub(crate) struct Document {
     status_code: Option<u16>,
     /// <https://html.spec.whatwg.org/multipage/#is-initial-about:blank>
     is_initial_about_blank: Cell<bool>,
+    /// <https://dom.spec.whatwg.org/#document-allow-declarative-shadow-roots>
+    allow_declarative_shadow_roots: Cell<bool>,
     /// <https://w3c.github.io/webappsec-upgrade-insecure-requests/#insecure-requests-policy>
     #[no_trace]
     inherited_insecure_requests_policy: Cell<Option<InsecureRequestsPolicy>>,
@@ -3604,6 +3606,7 @@ impl Document {
             visibility_state: Cell::new(DocumentVisibilityState::Hidden),
             status_code,
             is_initial_about_blank: Cell::new(is_initial_about_blank),
+            allow_declarative_shadow_roots: Cell::new(true),
             inherited_insecure_requests_policy: Cell::new(inherited_insecure_requests_policy),
         }
     }
@@ -4455,6 +4458,11 @@ impl Document {
     /// <https://html.spec.whatwg.org/multipage/#is-initial-about:blank>
     pub(crate) fn is_initial_about_blank(&self) -> bool {
         self.is_initial_about_blank.get()
+    }
+
+    /// <https://dom.spec.whatwg.org/#document-allow-declarative-shadow-roots>
+    pub fn allow_declarative_shadow_roots(&self) -> bool {
+        self.allow_declarative_shadow_roots.get()
     }
 }
 

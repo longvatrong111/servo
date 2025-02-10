@@ -44,6 +44,9 @@ use crate::dom::bindings::codegen::Bindings::DocumentBinding::{
 use crate::dom::bindings::codegen::Bindings::HTMLImageElementBinding::HTMLImageElementMethods;
 use crate::dom::bindings::codegen::Bindings::HTMLTemplateElementBinding::HTMLTemplateElementMethods;
 use crate::dom::bindings::codegen::Bindings::NodeBinding::NodeMethods;
+use crate::dom::bindings::codegen::Bindings::ShadowRootBinding::{
+    ShadowRootMode, SlotAssignmentMode,
+};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
 use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
@@ -64,6 +67,7 @@ use crate::dom::node::{Node, ShadowIncluding};
 use crate::dom::performanceentry::PerformanceEntry;
 use crate::dom::performancenavigationtiming::PerformanceNavigationTiming;
 use crate::dom::processinginstruction::ProcessingInstruction;
+use crate::dom::shadowroot::IsUserAgentWidget;
 use crate::dom::text::Text;
 use crate::dom::virtualmethods::vtable_for;
 use crate::network_listener::PreInvoke;
@@ -1368,6 +1372,65 @@ impl TreeSink for Sink {
     fn pop(&self, node: &Dom<Node>) {
         let node = DomRoot::from_ref(&**node);
         vtable_for(&node).pop();
+    }
+
+    fn allow_declarative_shadow_roots(&self, intended_parent: &Dom<Node>) -> bool {
+        intended_parent.owner_doc().allow_declarative_shadow_roots()
+    }
+
+    fn attach_declarative_shadow(
+        &self,
+        host: &Dom<Node>,
+        attrs: Vec<Attribute>,
+    ) -> Result<(), String> {
+        if host.is_in_a_shadow_tree() {
+            return Err(String::from("Already in a shadow host"));
+        }
+
+        let attrs: Vec<ElementAttribute> = attrs
+            .into_iter()
+            .map(|attr| ElementAttribute::new(attr.name, DOMString::from(String::from(attr.value))))
+            .collect();
+
+        let mut shadow_root_mode = ShadowRootMode::Open;
+        let mut clonable = false;
+        let mut _delegatesfocus = false;
+        let mut _serializable = false;
+
+        attrs
+            .iter()
+            .for_each(|attr: &ElementAttribute| match attr.name.local {
+                local_name!("shadowrootmode") => {
+                    if attr.value.str().eq_ignore_ascii_case("open") {
+                        shadow_root_mode = ShadowRootMode::Open;
+                    } else if attr.value.str().eq_ignore_ascii_case("closed") {
+                        shadow_root_mode = ShadowRootMode::Closed;
+                    }
+                },
+                local_name!("shadowrootclonable") => {
+                    clonable = true;
+                },
+                local_name!("shadowrootdelegatesfocus") => {
+                    _delegatesfocus = true;
+                },
+                local_name!("shadowrootserializable") => {
+                    _serializable = true;
+                },
+                _ => {},
+            });
+
+        match host.downcast::<Element>().unwrap().attach_shadow(
+            IsUserAgentWidget::No,
+            shadow_root_mode,
+            clonable,
+            SlotAssignmentMode::Manual,
+        ) {
+            Ok(_shadow) => {
+                // TODO Set template's template contents property to shadow.
+                Ok(())
+            },
+            Err(_) => Err(String::from("Attaching shadow fails")),
+        }
     }
 }
 
