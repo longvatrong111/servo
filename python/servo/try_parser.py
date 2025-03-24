@@ -45,6 +45,7 @@ class Workflow(str, Enum):
     ANDROID = "android"
     OHOS = "ohos"
     LINT = "lint"
+    TESTDRIVER = "testdriver"
 
 
 @dataclass
@@ -86,6 +87,8 @@ class JobConfig(object):
             self.name = "Android"
         elif self.workflow is Workflow.OHOS:
             self.name = "OpenHarmony"
+        elif self.workflow is Workflow.TESTDRIVER:
+            self.name = "TestDriver"
         modifier = []
         if self.profile != "release":
             modifier.append(self.profile.title())
@@ -122,6 +125,8 @@ def handle_preset(s: str) -> Optional[JobConfig]:
                          unit_tests=False)  # production profile does not work with unit-tests
     elif any(word in s for word in ["lint", "tidy"]):
         return JobConfig("Lint", Workflow.LINT)
+    elif any(word in s for word in ["testdriver"]):
+        return JobConfig("TestDriver", Workflow.TESTDRIVER)
     else:
         return None
 
