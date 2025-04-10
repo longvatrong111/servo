@@ -1,11 +1,11 @@
 name: Main
 
 on:
-  push:
+  #push:
     # Run the entire pipeline for 'main' even though the merge queue already runs checks
     # for every change. This just offers an extra layer of testing and covers the case of
     # random force pushes.
-    branches: ["main"]
+    # branches: ["main"]
   pull_request:
     types: ['opened', 'synchronize']
     branches: ["**"]
