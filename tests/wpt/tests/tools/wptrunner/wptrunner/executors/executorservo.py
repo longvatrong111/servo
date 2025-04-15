@@ -159,8 +159,9 @@ class ServoTestharnessExecutor(ServoExecutor):
 
             if proc_is_running:
                 if self.pause_after_test:
-                    self.logger.info("Pausing until the browser exits")
-                    self.proc.wait()
+                    # self.logger.info("Pausing until the browser exits")
+                    # self.proc.wait()
+                    self.proc.kill()
                 else:
                     self.proc.kill()
         except:  # noqa

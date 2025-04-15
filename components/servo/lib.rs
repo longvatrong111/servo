@@ -127,8 +127,9 @@ pub use crate::webview_delegate::{
 };
 
 #[cfg(feature = "webdriver")]
-fn webdriver(port: u16, constellation: Sender<EmbedderToConstellationMessage>) {
-    webdriver_server::start_server(port, constellation);
+fn webdriver(_port: u16, _constellation: Sender<EmbedderToConstellationMessage>) {
+    // do nothing
+    // webdriver_server::start_server(port, constellation);
 }
 
 #[cfg(not(feature = "webdriver"))]
@@ -968,7 +969,12 @@ impl Servo {
                         .show_form_control(webview, FormControl::SelectElement(prompt));
                 }
             },
+            EmbedderMsg::WebDriverToEmbedder(_) => {},
         }
+    }
+
+    pub fn constellation_sender(&self) -> Sender<EmbedderToConstellationMessage> {
+        self.constellation_proxy.sender()
     }
 }
 

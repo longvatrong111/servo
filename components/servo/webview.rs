@@ -444,6 +444,7 @@ impl WebView {
 
     pub fn notify_input_event(&self, event: InputEvent) {
         // Events with a `point` first go to the compositor for hit testing.
+
         if event.point().is_some() {
             self.inner()
                 .compositor

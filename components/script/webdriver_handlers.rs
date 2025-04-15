@@ -387,6 +387,8 @@ pub(crate) fn handle_execute_script(
                 jsval_to_webdriver(*cx, global, rval.handle())
             };
 
+            dbg!("handle_execute_script result: {:?}", &result);
+
             reply.send(result).unwrap();
         },
         None => {

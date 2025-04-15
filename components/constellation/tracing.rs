@@ -237,6 +237,7 @@ mod from_script {
                 Self::ShutdownComplete => target_variant!("ShutdownComplete"),
                 Self::ShowNotification(..) => target_variant!("ShowNotification"),
                 Self::ShowSelectElementMenu(..) => target_variant!("ShowSelectElementMenu"),
+                Self::WebDriverToEmbedder(..) => target_variant!("WebDriverToEmbedder"),
             }
         }
     }

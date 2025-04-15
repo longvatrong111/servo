@@ -409,6 +409,10 @@ impl Window {
             }
         }
     }
+
+    pub(crate) fn mouse_position(&self) -> Point2D<f32, DevicePixel> {
+        self.webview_relative_mouse_point.get()
+    }
 }
 
 impl WindowPortsMethods for Window {
