@@ -1330,6 +1330,12 @@ impl Document {
             "{:?}: at {:?}",
             event.action, hit_test_result.point_in_viewport
         );
+        dbg!(
+            "{:?}: at {:?}",
+            event.action,
+            hit_test_result.point_in_viewport
+        );
+        dbg!("Mouse events are taken and processed by the document.");
 
         let node = unsafe { node::from_untrusted_node_address(hit_test_result.node) };
         let Some(el) = node

@@ -2961,6 +2961,8 @@ where
         event: InputEvent,
         hit_test_result: Option<CompositorHitTestResult>,
     ) {
+        dbg!("Mouse events are taken and forwarded by the constellation thread.");
+
         if let InputEvent::MouseButton(event) = &event {
             self.update_pressed_mouse_buttons(event);
         }

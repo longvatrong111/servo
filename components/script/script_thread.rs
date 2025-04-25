@@ -1057,6 +1057,8 @@ impl ScriptThread {
 
     /// Process compositor events as part of a "update the rendering task".
     fn process_pending_input_events(&self, pipeline_id: PipelineId, can_gc: CanGc) {
+        dbg!("Mouse events are taken and processed by the script thread.");
+
         let Some(document) = self.documents.borrow().find_document(pipeline_id) else {
             warn!("Processing pending compositor events for closed pipeline {pipeline_id}.");
             return;
