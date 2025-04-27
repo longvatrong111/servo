@@ -25,8 +25,8 @@ use std::rc::Rc;
 use std::result::Result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use std::time::{Duration, Instant, SystemTime};
+use std::{mem, thread};
 
 use background_hang_monitor_api::{
     BackgroundHangMonitor, BackgroundHangMonitorExitSignal, HangAnnotation, MonitoredComponentId,
@@ -337,6 +337,14 @@ pub struct ScriptThread {
     /// The screen coordinates where the primary mouse button was pressed.
     #[no_trace]
     relative_mouse_down_point: Cell<Point2D<f32, DevicePixel>>,
+    #[no_trace]
+    pending_webdriver_script_events: DomRefCell<Vec<WebdriverScriptEvent>>,
+}
+
+struct WebdriverScriptEvent {
+    pub pipeline_id: PipelineId,
+    pub msg: WebDriverScriptCommand,
+    pub can_gc: CanGc,
 }
 
 struct BHMExitSignal {
@@ -958,6 +966,7 @@ impl ScriptThread {
             inherited_secure_context: state.inherited_secure_context,
             layout_factory,
             relative_mouse_down_point: Cell::new(Point2D::zero()),
+            pending_webdriver_script_events: Default::default(),
         }
     }
 
@@ -1064,6 +1073,12 @@ impl ScriptThread {
         }
     }
 
+    fn process_pending_script_events(&self) {
+        for event in self.take_pending_webdriver_events().into_iter() {
+            self.process_webdriver_msg(event.pipeline_id, event.msg, event.can_gc);
+        }
+    }
+
     /// Process compositor events as part of a "update the rendering task".
     fn process_pending_input_events(&self, pipeline_id: PipelineId, can_gc: CanGc) {
         let Some(document) = self.documents.borrow().find_document(pipeline_id) else {
@@ -1084,6 +1099,8 @@ impl ScriptThread {
 
             match event.event.clone() {
                 InputEvent::MouseButton(mouse_button_event) => {
+                    dbg!("ScriptThread process input event mouse button");
+
                     document.handle_mouse_button_event(
                         mouse_button_event,
                         event.hit_test_result,
@@ -1092,6 +1109,7 @@ impl ScriptThread {
                     );
                 },
                 InputEvent::MouseMove(_) => {
+                    dbg!("ScriptThread process input event mouse move");
                     // The event itself is unecessary here, because the point in the viewport is in the hit test.
                     self.process_mouse_move_event(
                         &document,
@@ -2111,6 +2129,29 @@ impl ScriptThread {
         }
     }
 
+    fn take_pending_webdriver_events(&self) -> Vec<WebdriverScriptEvent> {
+        mem::take(&mut *self.pending_webdriver_script_events.borrow_mut())
+    }
+
+    fn process_webdriver_msg(
+        &self,
+        pipeline_id: PipelineId,
+        msg: WebDriverScriptCommand,
+        can_gc: CanGc,
+    ) {
+        match msg {
+            WebDriverScriptCommand::ExecuteScript(script, reply) => {
+                let window = self.documents.borrow().find_window(pipeline_id);
+                webdriver_handlers::handle_execute_script(window, script, reply, can_gc)
+            },
+            WebDriverScriptCommand::ExecuteAsyncScript(script, reply) => {
+                let window = self.documents.borrow().find_window(pipeline_id);
+                webdriver_handlers::handle_execute_async_script(window, script, reply, can_gc)
+            },
+            _ => (),
+        }
+    }
+
     fn handle_webdriver_msg(
         &self,
         pipeline_id: PipelineId,
@@ -2132,7 +2173,7 @@ impl ScriptThread {
                     window, script, reply, can_gc,
                 );
             },
-            _ => (),
+            _ => {},
         }
 
         let documents = self.documents.borrow();
@@ -3428,6 +3469,7 @@ impl ScriptThread {
     /// Queue compositor events for later dispatching as part of a
     /// `update_the_rendering` task.
     fn handle_input_event(&self, pipeline_id: PipelineId, event: ConstellationInputEvent) {
+        dbg!("ScriptThread received input event");
         let Some(document) = self.documents.borrow().find_document(pipeline_id) else {
             warn!("Compositor event sent to closed pipeline {pipeline_id}.");
             return;

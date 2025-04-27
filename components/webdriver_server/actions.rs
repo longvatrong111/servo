@@ -8,7 +8,8 @@ use std::{cmp, thread};
 
 use constellation_traits::EmbedderToConstellationMessage;
 use embedder_traits::{
-    MouseButtonAction, WebDriverCommandMsg, WebDriverCommandResponse, WebDriverScriptCommand,
+    EmbedderMsg, MouseButtonAction, WebDriverCommandMsg, WebDriverCommandResponse,
+    WebDriverScriptCommand,
 };
 use ipc_channel::ipc;
 use keyboard_types::webdriver::KeyInputState;
@@ -145,6 +146,7 @@ impl Handler {
                 _ => {},
             }
 
+            dbg!("Wait for dispatch actions to complete");
             match self.constellation_receiver.recv() {
                 Ok(response) => {
                     // If you receive a response, check if it itself represents an error.
@@ -194,6 +196,7 @@ impl Handler {
         tick_actions: &ActionSequence,
         tick_duration: u64,
     ) -> Result<(), ErrorStatus> {
+        dbg!("Dispatch tick actions: {:?}");
         let source_id = &tick_actions.id;
         match &tick_actions.actions {
             ActionsType::Null { actions } => {
@@ -390,9 +393,9 @@ impl Handler {
             msg_id,
             self.constellation_sender.clone(),
         );
-        self.constellation_chan
-            .send(EmbedderToConstellationMessage::WebDriverCommand(cmd_msg))
-            .unwrap();
+
+        self.embedder_proxy
+            .send(EmbedderMsg::WebDriverToEmbedder(cmd_msg));
     }
 
     // https://w3c.github.io/webdriver/#dfn-dispatch-a-pointerup-action
@@ -439,9 +442,9 @@ impl Handler {
             msg_id,
             self.constellation_sender.clone(),
         );
-        self.constellation_chan
-            .send(EmbedderToConstellationMessage::WebDriverCommand(cmd_msg))
-            .unwrap();
+
+        self.embedder_proxy
+            .send(EmbedderMsg::WebDriverToEmbedder(cmd_msg));
     }
 
     // https://w3c.github.io/webdriver/#dfn-dispatch-a-pointermove-action
@@ -559,9 +562,9 @@ impl Handler {
                     msg_id,
                     self.constellation_sender.clone(),
                 );
-                self.constellation_chan
-                    .send(EmbedderToConstellationMessage::WebDriverCommand(cmd_msg))
-                    .unwrap();
+                dbg!("Send webdriver move action to embedder");
+                self.embedder_proxy
+                    .send(EmbedderMsg::WebDriverToEmbedder(cmd_msg));
                 // Step 7.3
                 pointer_input_state.x = x;
                 pointer_input_state.y = y;

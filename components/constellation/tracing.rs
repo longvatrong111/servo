@@ -244,6 +244,7 @@ mod from_script {
                 Self::FinishJavaScriptEvaluation(..) => {
                     target_variant!("FinishJavaScriptEvaluation")
                 },
+                Self::WebDriverToEmbedder(..) => target_variant!("WebDriverToEmbedder"),
             }
         }
     }

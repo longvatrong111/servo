@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use base::id::{BrowsingContextId, WebViewId};
 use cookie::Cookie;
+use crossbeam_channel::Sender;
 use euclid::default::Rect as UntypedRect;
 use euclid::{Rect, Size2D};
 use hyper_serde::Serde;
@@ -30,6 +31,8 @@ pub struct WebDriverMessageId(pub usize);
 /// Messages to the constellation originating from the WebDriver server.
 #[derive(Debug, Deserialize, Serialize)]
 pub enum WebDriverCommandMsg {
+    /// Send sender channels to other threads
+    InitializeChannels(IpcSender<WebDriverCommandResponse>),
     /// Get the window size.
     GetWindowSize(WebViewId, IpcSender<Size2D<f32, CSSPixel>>),
     /// Load a URL in the top-level browsing context with the given ID.

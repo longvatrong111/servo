@@ -24,9 +24,10 @@ use constellation_traits::{EmbedderToConstellationMessage, TraversalDirection};
 use cookie::{CookieBuilder, Expiration};
 use crossbeam_channel::{Receiver, Sender, after, select, unbounded};
 use embedder_traits::{
-    MouseButton, WebDriverCommandMsg, WebDriverCommandResponse, WebDriverCookieError,
-    WebDriverFrameId, WebDriverJSError, WebDriverJSResult, WebDriverJSValue, WebDriverLoadStatus,
-    WebDriverMessageId, WebDriverScriptCommand,
+    EmbedderMsg, EmbedderProxy, EventLoopWaker, MouseButton, WebDriverCommandMsg,
+    WebDriverCommandResponse, WebDriverCookieError, WebDriverFrameId, WebDriverJSError,
+    WebDriverJSResult, WebDriverJSValue, WebDriverLoadStatus, WebDriverMessageId,
+    WebDriverScriptCommand,
 };
 use euclid::{Rect, Size2D};
 use http::method::Method;
@@ -59,8 +60,8 @@ use webdriver::common::{Cookie, Date, LocatorStrategy, Parameters, WebElement};
 use webdriver::error::{ErrorStatus, WebDriverError, WebDriverResult};
 use webdriver::httpapi::WebDriverExtensionRoute;
 use webdriver::response::{
-    CloseWindowResponse, CookieResponse, CookiesResponse, ElementRectResponse, NewSessionResponse,
-    NewWindowResponse, TimeoutsResponse, ValueResponse, WebDriverResponse, WindowRectResponse,
+    CookieResponse, CookiesResponse, ElementRectResponse, NewSessionResponse, NewWindowResponse,
+    TimeoutsResponse, ValueResponse, WebDriverResponse, WindowRectResponse,
 };
 use webdriver::server::{self, Session, SessionTeardownKind, WebDriverHandler};
 
@@ -74,7 +75,7 @@ pub struct IdGenerator {
 impl IdGenerator {
     pub fn new() -> Self {
         Self {
-            counter: Cell::new(0),
+            counter: Cell::new(1),
         }
     }
 
@@ -122,12 +123,25 @@ fn cookie_msg_to_cookie(cookie: cookie::Cookie) -> Cookie {
     }
 }
 
-pub fn start_server(port: u16, constellation_chan: Sender<EmbedderToConstellationMessage>) {
-    let handler = Handler::new(constellation_chan);
+pub fn start_server(
+    port: u16,
+    constellation_chan: Sender<EmbedderToConstellationMessage>,
+    embedder_proxy: EmbedderProxy,
+) {
+    let handler = Handler::new(constellation_chan, embedder_proxy);
+    handler.initialize_channels();
+    match handler.constellation_receiver.recv() {
+        Ok(_) => {
+            dbg!("Received InitializeChannels response");
+        },
+        Err(_) => {
+            panic!("Failed to receive InitializeChannels response");
+        },
+    }
     thread::Builder::new()
         .name("WebDriverHttpServer".to_owned())
         .spawn(move || {
-            let address = SocketAddrV4::new("0.0.0.0".parse().unwrap(), port);
+            let address: SocketAddrV4 = SocketAddrV4::new("0.0.0.0".parse().unwrap(), port);
             match server::start(
                 SocketAddr::V4(address),
                 vec![],
@@ -140,6 +154,19 @@ pub fn start_server(port: u16, constellation_chan: Sender<EmbedderToConstellatio
             }
         })
         .expect("Thread spawning failed");
+}
+
+pub fn create_embedder_channel(
+    event_loop_waker: Box<dyn EventLoopWaker>,
+) -> (EmbedderProxy, Receiver<EmbedderMsg>) {
+    let (sender, receiver) = unbounded();
+    (
+        EmbedderProxy {
+            sender,
+            event_loop_waker,
+        },
+        receiver,
+    )
 }
 
 /// Represents the current WebDriver session and holds relevant session state.
@@ -228,6 +255,7 @@ struct Handler {
 
     current_action_id: Cell<Option<WebDriverMessageId>>,
 
+    embedder_proxy: EmbedderProxy,
     resize_timeout: u32,
 }
 
@@ -439,7 +467,10 @@ impl<'de> Visitor<'de> for TupleVecMapVisitor {
 }
 
 impl Handler {
-    pub fn new(constellation_chan: Sender<EmbedderToConstellationMessage>) -> Handler {
+    pub fn new(
+        constellation_chan: Sender<EmbedderToConstellationMessage>,
+        embedder_proxy: EmbedderProxy,
+    ) -> Handler {
         // Create a pair of both an IPC and a threaded channel,
         // keep the IPC sender to clone and pass to the constellation for each load,
         // and keep a threaded receiver to block on an incoming load-status.
@@ -460,8 +491,16 @@ impl Handler {
             constellation_receiver,
             id_generator: IdGenerator::new(),
             current_action_id: Cell::new(None),
+            embedder_proxy,
             resize_timeout: 500,
         }
+    }
+
+    fn initialize_channels(&self) {
+        let msg = EmbedderToConstellationMessage::WebDriverCommand(
+            WebDriverCommandMsg::InitializeChannels(self.constellation_sender.clone()),
+        );
+        self.constellation_chan.send(msg).unwrap();
     }
 
     fn focus_webview_id(&self) -> WebDriverResult<WebViewId> {
@@ -669,15 +708,14 @@ impl Handler {
         cmd_msg: WebDriverScriptCommand,
     ) -> WebDriverResult<()> {
         let browsing_context_id = self.session()?.browsing_context_id;
-        let msg = EmbedderToConstellationMessage::WebDriverCommand(
+        self.embedder_proxy.send(EmbedderMsg::WebDriverToEmbedder(
             WebDriverCommandMsg::ScriptCommand(browsing_context_id, cmd_msg),
-        );
-        self.constellation_chan.send(msg).unwrap();
+        ));
         Ok(())
     }
 
     fn top_level_script_command(&self, cmd_msg: WebDriverScriptCommand) -> WebDriverResult<()> {
-        let browsing_context_id = BrowsingContextId::from(self.session()?.webview_id);
+        let browsing_context_id = self.session()?.browsing_context_id;
         let msg = EmbedderToConstellationMessage::WebDriverCommand(
             WebDriverCommandMsg::ScriptCommand(browsing_context_id, cmd_msg),
         );
@@ -941,14 +979,7 @@ impl Handler {
                 .unwrap();
         }
 
-        Ok(WebDriverResponse::CloseWindow(CloseWindowResponse(
-            self.session()
-                .unwrap()
-                .window_handles
-                .values()
-                .cloned()
-                .collect(),
-        )))
+        self.handle_window_handles()
     }
 
     fn handle_new_window(

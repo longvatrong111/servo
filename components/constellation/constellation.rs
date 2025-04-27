@@ -132,7 +132,8 @@ use embedder_traits::{
     FocusSequenceNumber, ImeEvent, InputEvent, JSValue, JavaScriptEvaluationError,
     JavaScriptEvaluationId, MediaSessionActionType, MediaSessionEvent, MediaSessionPlaybackState,
     MouseButton, MouseButtonAction, MouseButtonEvent, Theme, ViewportDetails, WebDriverCommandMsg,
-    WebDriverCommandResponse, WebDriverLoadStatus,
+    WebDriverCommandResponse, WebDriverInputEvent as WebDriverInputEventEmbedder,
+    WebDriverLoadStatus, WebDriverMessageId,
 };
 use euclid::Size2D;
 use euclid::default::Size2D as UntypedSize2D;
@@ -1452,6 +1453,9 @@ where
                 self.handle_log_entry(webview_id, thread_name, entry);
             },
             EmbedderToConstellationMessage::ForwardInputEvent(webview_id, event, hit_test) => {
+                if let Some(_) = &event.webdriver_id() {
+                    dbg!("Constellation Receive ForwardInputEvent from compositor");
+                }
                 self.forward_input_event(webview_id, event, hit_test);
             },
             EmbedderToConstellationMessage::SetCursor(webview_id, cursor) => {
@@ -4692,6 +4696,16 @@ where
         // Find the script channel for the given parent pipeline,
         // and pass the event to that script thread.
         match msg {
+            WebDriverCommandMsg::InitializeChannels(sender) => {
+                dbg!("Set up webdriver channels in constellation");
+                self.webdriver.input_command_response_channel = Some(sender.clone());
+
+                sender
+                    .send(WebDriverCommandResponse::WebDriverInputComplete(
+                        WebDriverMessageId(0),
+                    ))
+                    .unwrap();
+            },
             WebDriverCommandMsg::CloseWebView(webview_id) => {
                 self.handle_close_top_level_browsing_context(webview_id);
             },
