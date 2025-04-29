@@ -1325,7 +1325,12 @@ impl Document {
         let Some(hit_test_result) = hit_test_result else {
             return;
         };
-
+        dbg!(
+            "mouse button event is handled in document: {:?} at {:?}",
+            "MouseButtonEvent: {:?} at {:?}",
+            event.action,
+            hit_test_result.point_in_viewport
+        );
         debug!(
             "{:?}: at {:?}",
             event.action, hit_test_result.point_in_viewport
@@ -1360,12 +1365,13 @@ impl Document {
             &hit_test_result,
             can_gc,
         ));
-
+        // dbg!("Dome event: {:?} ", event, pressed_mouse_buttons);
         // https://html.spec.whatwg.org/multipage/#run-authentic-click-activation-steps
         let activatable = el.as_maybe_activatable();
         match event.action {
             MouseButtonAction::Click => {
                 el.set_click_in_progress(true);
+                dbg!("Fire click event");
                 dom_event.fire(node.upcast(), can_gc);
                 el.set_click_in_progress(false);
             },
@@ -1375,6 +1381,7 @@ impl Document {
                 }
 
                 let target = node.upcast();
+                dbg!("Fire mousedown event");
                 dom_event.fire(target, can_gc);
             },
             MouseButtonAction::Up => {
@@ -1383,6 +1390,7 @@ impl Document {
                 }
 
                 let target = node.upcast();
+                dbg!("Fire mouseup event");
                 dom_event.fire(target, can_gc);
             },
         }
@@ -1549,6 +1557,7 @@ impl Document {
         let client_x = client_point.x.to_i32().unwrap_or(0);
         let client_y = client_point.y.to_i32().unwrap_or(0);
 
+        dbg!("Fire mouse move event");
         MouseEvent::new(
             &self.window,
             DOMString::from(event_name.as_str()),
@@ -3972,6 +3981,9 @@ impl Document {
 
     /// Note a pending compositor event, to be processed at the next `update_the_rendering` task.
     pub(crate) fn note_pending_input_event(&self, event: ConstellationInputEvent) {
+        // dbg!("Note input event for processing: {:?}", &event);
+        // dbg!("Event action: {:?}", &event.event);
+
         let mut pending_compositor_events = self.pending_input_events.borrow_mut();
         if matches!(event.event, InputEvent::MouseMove(..)) {
             // First try to replace any existing mouse move event.

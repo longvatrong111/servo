@@ -3,12 +3,13 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashSet;
+use std::io::BufWriter;
 use std::time::{Duration, Instant};
 use std::{cmp, thread};
 
 use constellation_traits::EmbedderToConstellationMessage;
 use embedder_traits::{
-    EmbedderMsg, MouseButtonAction, WebDriverCommandMsg, WebDriverScriptCommand,
+    EmbedderMsg, MouseButtonAction, WebDriverCommandMsg, WebDriverScriptCommand, MouseButton,
 };
 use ipc_channel::ipc;
 use keyboard_types::webdriver::KeyInputState;
@@ -279,11 +280,11 @@ impl Handler {
             },
         });
 
-        let button = (action.button as u16).into();
+        // let button = (action.button as u16).into();
         let cmd_msg = WebDriverCommandMsg::MouseButtonAction(
             session.webview_id,
             MouseButtonAction::Down,
-            button,
+            MouseButton::Left,
             pointer_input_state.x as f32,
             pointer_input_state.y as f32,
         );
@@ -326,11 +327,13 @@ impl Handler {
             },
         });
 
-        let button = (action.button as u16).into();
+        // let button = (action.button as u16).into();
+        // dbg!("button: {:?}", button);
+        // let button = MouseButton::
         let cmd_msg = WebDriverCommandMsg::MouseButtonAction(
             session.webview_id,
             MouseButtonAction::Up,
-            button,
+            MouseButton::Left,
             pointer_input_state.x as f32,
             pointer_input_state.y as f32,
         );

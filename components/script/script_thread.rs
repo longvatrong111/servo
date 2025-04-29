@@ -1090,6 +1090,7 @@ impl ScriptThread {
 
             match event.event {
                 InputEvent::MouseButton(mouse_button_event) => {
+                    // dbg!("Process mouse button event");
                     document.handle_mouse_button_event(
                         mouse_button_event,
                         event.hit_test_result,
@@ -1098,6 +1099,7 @@ impl ScriptThread {
                     );
                 },
                 InputEvent::MouseMove(_) => {
+                    // dbg!("Process mouse move event");
                     // The event itself is unecessary here, because the point in the viewport is in the hit test.
                     self.process_mouse_move_event(
                         &document,
@@ -1301,7 +1303,7 @@ impl ScriptThread {
             // https://drafts.csswg.org/css-position-4/#process-top-layer-removals.
         }
 
-        self.process_pending_script_events();
+
         // Perform a microtask checkpoint as the specifications says that *update the rendering*
         // should be run in a task and a microtask checkpoint is always done when running tasks.
         self.perform_a_microtask_checkpoint(can_gc);
@@ -1310,6 +1312,8 @@ impl ScriptThread {
         // the microtask checkpoint above and we should spin the event loop one more
         // time to resolve them.
         self.schedule_rendering_opportunity_if_necessary();
+
+        self.process_pending_script_events();
     }
 
     // If there are any pending reflows and we are not having rendering opportunities
@@ -1451,6 +1455,7 @@ impl ScriptThread {
                     }
                 },
                 MixedMessage::FromConstellation(ScriptThreadMessage::SendInputEvent(id, event)) => {
+                    // dbg!("Script Thread receives input event: {event:?}");
                     self.handle_input_event(id, event)
                 },
                 MixedMessage::FromScript(MainThreadScriptMsg::Common(CommonScriptMsg::Task(
@@ -2111,6 +2116,7 @@ impl ScriptThread {
     ) {
         match msg {
             WebDriverScriptCommand::ExecuteScript(script, reply) => {
+                dbg!("Process pending script events handle execute script");
                 let window = self.documents.borrow().find_window(pipeline_id);
                 return webdriver_handlers::handle_execute_script(window, script, reply, can_gc);
             },
@@ -2119,6 +2125,16 @@ impl ScriptThread {
                 return webdriver_handlers::handle_execute_async_script(
                     window, script, reply, can_gc,
                 );
+            },
+            WebDriverScriptCommand::ElementClick(element_id, reply) => {
+                let documents = self.documents.borrow();
+                webdriver_handlers::handle_element_click(
+                    &documents,
+                    pipeline_id,
+                    element_id,
+                    reply,
+                    can_gc,
+                )
             },
             _ => (),
         }
@@ -2135,7 +2151,8 @@ impl ScriptThread {
         // `self.documents`, which would conflict with the immutable borrow of it that
         // occurs for the rest of the messages
         match msg {
-            WebDriverScriptCommand::ExecuteScript(ref script, ref reply) => {
+            WebDriverScriptCommand::ExecuteScript(ref _script, ref _reply) => {
+                // dbg!("Script thread receives ExecuteScript events");
                 return self.pending_webdriver_script_events.borrow_mut().push(
                     WebdriverScriptEvent {
                         pipeline_id,
@@ -2144,7 +2161,16 @@ impl ScriptThread {
                     },
                 );
             },
-            WebDriverScriptCommand::ExecuteAsyncScript(ref script, ref reply) => {
+            WebDriverScriptCommand::ExecuteAsyncScript(ref _script, ref _reply) => {
+                return self.pending_webdriver_script_events.borrow_mut().push(
+                    WebdriverScriptEvent {
+                        pipeline_id,
+                        msg,
+                        can_gc,
+                    },
+                );
+            },
+            WebDriverScriptCommand::ElementClick(ref _element_id, ref _reply) => {
                 return self.pending_webdriver_script_events.borrow_mut().push(
                     WebdriverScriptEvent {
                         pipeline_id,
@@ -2292,15 +2318,15 @@ impl ScriptThread {
                     can_gc,
                 )
             },
-            WebDriverScriptCommand::ElementClick(element_id, reply) => {
-                webdriver_handlers::handle_element_click(
-                    &documents,
-                    pipeline_id,
-                    element_id,
-                    reply,
-                    can_gc,
-                )
-            },
+            // WebDriverScriptCommand::ElementClick(element_id, reply) => {
+            //     webdriver_handlers::handle_element_click(
+            //         &documents,
+            //         pipeline_id,
+            //         element_id,
+            //         reply,
+            //         can_gc,
+            //     )
+            // },
             WebDriverScriptCommand::GetActiveElement(reply) => {
                 webdriver_handlers::handle_get_active_element(&documents, pipeline_id, reply)
             },
@@ -3406,24 +3432,37 @@ impl ScriptThread {
             if let MouseButton::Left = mouse_button_event.button {
                 match mouse_button_event.action {
                     MouseButtonAction::Up => {
-                        let pixel_dist =
-                            self.relative_mouse_down_point.get() - mouse_button_event.point;
-                        let pixel_dist =
-                            (pixel_dist.x * pixel_dist.x + pixel_dist.y * pixel_dist.y).sqrt();
-                        if pixel_dist < 10.0 * document.window().device_pixel_ratio().get() {
-                            document.note_pending_input_event(event.clone());
-                            document.note_pending_input_event(ConstellationInputEvent {
-                                hit_test_result: event.hit_test_result,
-                                pressed_mouse_buttons: event.pressed_mouse_buttons,
-                                active_keyboard_modifiers: event.active_keyboard_modifiers,
-                                event: InputEvent::MouseButton(MouseButtonEvent {
-                                    action: MouseButtonAction::Click,
-                                    button: mouse_button_event.button,
-                                    point: mouse_button_event.point,
-                                }),
-                            });
-                            return;
-                        }
+                        // let pixel_dist =
+                        //     self.relative_mouse_down_point.get() - mouse_button_event.point;
+                        // let pixel_dist =
+                        //     (pixel_dist.x * pixel_dist.x + pixel_dist.y * pixel_dist.y).sqrt();
+                        // if pixel_dist < 10.0 * document.window().device_pixel_ratio().get() {
+                        //     document.note_pending_input_event(event.clone());
+                        //     document.note_pending_input_event(ConstellationInputEvent {
+                        //         hit_test_result: event.hit_test_result,
+                        //         pressed_mouse_buttons: event.pressed_mouse_buttons,
+                        //         active_keyboard_modifiers: event.active_keyboard_modifiers,
+                        //         event: InputEvent::MouseButton(MouseButtonEvent {
+                        //             action: MouseButtonAction::Click,
+                        //             button: mouse_button_event.button,
+                        //             point: mouse_button_event.point,
+                        //         }),
+                        //     });
+                        //     return;
+                        // }
+
+                        document.note_pending_input_event(event.clone());
+                        document.note_pending_input_event(ConstellationInputEvent {
+                            hit_test_result: event.hit_test_result,
+                            pressed_mouse_buttons: event.pressed_mouse_buttons,
+                            active_keyboard_modifiers: event.active_keyboard_modifiers,
+                            event: InputEvent::MouseButton(MouseButtonEvent {
+                                action: MouseButtonAction::Click,
+                                button: mouse_button_event.button,
+                                point: mouse_button_event.point,
+                            }),
+                        });
+                        return;
                     },
                     MouseButtonAction::Down => {
                         self.relative_mouse_down_point.set(mouse_button_event.point)

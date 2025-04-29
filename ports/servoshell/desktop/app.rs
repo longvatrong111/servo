@@ -330,7 +330,7 @@ impl App {
             Ok(msg) => match msg {
                 EmbedderMsg::WebDriverToEmbedder(webdriver_cmd) => match webdriver_cmd {
                     WebDriverCommandMsg::MouseButtonAction(webview_id, action, button, x, y) => {
-                        dbg!("APP RECEIVE MOUSE EVENT");
+                        // dbg!("Embedder received mouse button action: {:?}", action);
                         let point = Point2D::new(x, y);
                         let webview = running_state.webviews_by_index(webview_id);
 
@@ -341,13 +341,15 @@ impl App {
                         }));
                     },
                     WebDriverCommandMsg::MouseMoveAction(webview_id, x, y) => {
+                        // dbg!("Embedder received mouse move event: {:?}");
+
                         let point = Point2D::new(x, y);
                         let webview = running_state.webviews_by_index(webview_id);
 
                         webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent { point }));
                     },
                     WebDriverCommandMsg::ScriptCommand(browsing_context_id, cmd_msg) => {
-                        dbg!("APP RECEIVE SCRIPT EVENT");
+                        // dbg!("Embedder received execute script event: {:?}");
 
                         let msg = EmbedderToConstellationMessage::WebDriverCommand(
                             WebDriverCommandMsg::ScriptCommand(browsing_context_id, cmd_msg),

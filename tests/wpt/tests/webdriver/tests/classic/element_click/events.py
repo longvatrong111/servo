@@ -18,15 +18,26 @@ def test_event_mousemove(session, url):
     )
 
     element = session.find.css('#outer', all=False)
+    print("Run element click command")
     response = element_click(session, element)
     assert_success(response)
+    # time.sleep(0.1)
+    # time.sleep(0.1)
+
+    # time.sleep(0.1)
+    # time.sleep(0.1)
+
+
+    # time.sleep(5)
+    # print("Run script command")
+    time.sleep(3)
 
     events = get_events(session)
+    time.sleep(3)
     print(events)
 
-    time.sleep(2)
-    events = get_events(session)
-    print(events)
+    # events = get_events(session)
+    # print(events)
 
     # events = get_events(session)
     # print(events)
