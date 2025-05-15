@@ -26,7 +26,8 @@ use crossbeam_channel::{Receiver, Sender};
 use dpi::PhysicalSize;
 use embedder_traits::{
     CompositorHitTestResult, Cursor, InputEvent, MouseButtonEvent, MouseMoveEvent, ShutdownState,
-    TouchEventType, UntrustedNodeAddress, ViewportDetails, WheelDelta, WheelEvent, WheelMode,
+    TouchEventType, UntrustedNodeAddress, ViewportDetails, WebDriverInputEvent, WheelDelta,
+    WheelEvent, WheelMode,
 };
 use euclid::{Point2D, Rect, Scale, Size2D, Transform3D, Vector2D};
 use fnv::FnvHashMap;
@@ -628,12 +629,10 @@ impl IOCompositor {
                 };
                 let dppx = webview_renderer.device_pixels_per_page_pixel();
                 let point = dppx.transform_point(Point2D::new(x, y));
-                webview_renderer.dispatch_input_event(InputEvent::MouseButton(MouseButtonEvent {
-                    point,
-                    action,
-                    button,
-                    webdriver_id: Some(id),
-                }));
+                webview_renderer.dispatch_input_event(
+                    InputEvent::MouseButton(MouseButtonEvent::new(action, button, point))
+                        .with_webdriver_id(Some(id)),
+                );
             },
 
             CompositorMsg::WebDriverMouseMoveEvent(webview_id, x, y, id) => {
@@ -643,10 +642,9 @@ impl IOCompositor {
                 };
                 let dppx = webview_renderer.device_pixels_per_page_pixel();
                 let point = dppx.transform_point(Point2D::new(x, y));
-                webview_renderer.dispatch_input_event(InputEvent::MouseMove(MouseMoveEvent {
-                    point,
-                    webdriver_id: Some(id),
-                }));
+                webview_renderer.dispatch_input_event(
+                    InputEvent::MouseMove(MouseMoveEvent::new(point)).with_webdriver_id(Some(id)),
+                );
             },
 
             CompositorMsg::WebDriverWheelScrollEvent(webview_id, x, y, delta_x, delta_y) => {
