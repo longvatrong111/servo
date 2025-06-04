@@ -435,14 +435,17 @@ impl Handler {
             Some(duration) => duration,
             None => tick_duration,
         };
-
-        // Step 8
-        if duration > 0 {
-            thread::sleep(Duration::from_millis(POINTERMOVE_INTERVAL));
-        }
+        let start_time = Instant::now();
 
         // Step 9 - 18
         self.perform_pointer_move(source_id, duration, start_x, start_y, x, y, tick_start);
+
+        // Step 8. If duration is greater than 0 and inside any implementation-defined bounds,
+        // asynchronously wait for an implementation defined amount of time to pass.
+        let elapsed_time = start_time.elapsed().as_millis() as u64;
+        if duration > elapsed_time {
+            thread::sleep(Duration::from_millis(duration - elapsed_time));
+        }
 
         // Step 19
         Ok(())
@@ -513,7 +516,6 @@ impl Handler {
                 pointer_input_state.x = x;
                 pointer_input_state.y = y;
             }
-
             // Step 8
             if last {
                 return;
