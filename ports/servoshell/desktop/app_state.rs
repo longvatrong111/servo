@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crossbeam_channel::Receiver;
 use euclid::Vector2D;
 use keyboard_types::{Key, Modifiers, ShortcutMatcher};
 use log::{error, info};
@@ -18,7 +19,7 @@ use servo::webrender_api::units::{DeviceIntPoint, DeviceIntSize};
 use servo::{
     AllowOrDenyRequest, AuthenticationRequest, FilterPattern, FormControl, GamepadHapticEffectType,
     KeyboardEvent, LoadStatus, PermissionRequest, Servo, ServoDelegate, ServoError, SimpleDialog,
-    TouchEventType, WebView, WebViewBuilder, WebViewDelegate,
+    TouchEventType, WebDriverCommandMsg, WebView, WebViewBuilder, WebViewDelegate,
 };
 use url::Url;
 
@@ -41,6 +42,7 @@ pub(crate) struct RunningAppState {
     /// `inner` so that we can keep a reference to Servo in order to spin the event loop,
     /// which will in turn call delegates doing a mutable borrow on `inner`.
     servo: Servo,
+    webdriver_receiver: Option<Receiver<WebDriverCommandMsg>>,
     /// The preferences for this run of servoshell. This is not mutable, so doesn't need to
     /// be stored inside the [`RunningAppStateInner`].
     servoshell_preferences: ServoShellPreferences,
@@ -86,12 +88,14 @@ impl Drop for RunningAppState {
 impl RunningAppState {
     pub fn new(
         servo: Servo,
+        webdriver_receiver: Option<Receiver<WebDriverCommandMsg>>,
         window: Rc<dyn WindowPortsMethods>,
         servoshell_preferences: ServoShellPreferences,
     ) -> RunningAppState {
         servo.set_delegate(Rc::new(ServoShellServoDelegate));
         RunningAppState {
             servo,
+            webdriver_receiver,
             servoshell_preferences,
             inner: RefCell::new(RunningAppStateInner {
                 webviews: HashMap::default(),
@@ -130,6 +134,14 @@ impl RunningAppState {
 
     pub(crate) fn servo(&self) -> &Servo {
         &self.servo
+    }
+
+    pub(crate) fn webdriver_receiver(&self) -> Option<&Receiver<WebDriverCommandMsg>> {
+        self.webdriver_receiver.as_ref()
+    }
+
+    pub(crate) fn forward_webdriver_command(&self, command: WebDriverCommandMsg) {
+        self.servo().execute_webdriver_command(command);
     }
 
     pub(crate) fn hidpi_scale_factor_changed(&self) {
