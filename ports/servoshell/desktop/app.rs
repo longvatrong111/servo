@@ -430,12 +430,14 @@ impl App {
                         webview.go_forward(1);
                     }
                 },
+                webdriver_msg @ WebDriverCommandMsg::ScriptCommand(..) => {
+                    running_state.forward_webdriver_command(webdriver_msg);
+                },
                 WebDriverCommandMsg::SendKeys(..) |
                 WebDriverCommandMsg::KeyboardAction(..) |
                 WebDriverCommandMsg::MouseButtonAction(..) |
                 WebDriverCommandMsg::MouseMoveAction(..) |
                 WebDriverCommandMsg::WheelScrollAction(..) |
-                WebDriverCommandMsg::ScriptCommand(..) |
                 WebDriverCommandMsg::TakeScreenshot(..) => {
                     warn!(
                         "WebDriverCommand {:?} is still not moved from constellation to embedder",
