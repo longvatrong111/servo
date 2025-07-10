@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use base::id::WebViewId;
 use embedder_traits::{WebDriverCommandMsg, WebDriverUserPromptAction};
 use ipc_channel::ipc;
 use webdriver::error::{ErrorStatus, WebDriverError, WebDriverResult};
@@ -89,5 +90,17 @@ impl Handler {
                 })?,
             ))),
         }
+    }
+
+    /// TODO: Handle user prompt is just a step to unblock the current command.
+    /// For now, only need send a default "accept" to embedder.
+    pub(crate) fn handle_any_user_prompt(&self, webview_id: WebViewId) {
+        let (sender, _) = ipc::channel().unwrap();
+
+        let _ = self.send_message_to_embedder(WebDriverCommandMsg::HandleUserPrompt(
+            webview_id,
+            WebDriverUserPromptAction::Accept, // Default action
+            sender,
+        ));
     }
 }
