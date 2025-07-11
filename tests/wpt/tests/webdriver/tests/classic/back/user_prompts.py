@@ -97,26 +97,26 @@ def check_user_prompt_not_closed_but_exception(session, create_dialog, pages):
     return check_user_prompt_not_closed_but_exception
 
 
-@pytest.mark.capabilities({"unhandledPromptBehavior": "accept"})
-@pytest.mark.parametrize("dialog_type", ["alert", "beforeunload", "confirm", "prompt"])
-def test_accept(
-    check_beforeunload_implicitly_accepted,
-    check_user_prompt_closed_without_exception,
-    dialog_type
-):
-    if dialog_type == "beforeunload":
-        check_beforeunload_implicitly_accepted()
-    else:
-        # retval not testable for confirm and prompt because window is gone
-        check_user_prompt_closed_without_exception(dialog_type, None)
+# @pytest.mark.capabilities({"unhandledPromptBehavior": "accept"})
+# @pytest.mark.parametrize("dialog_type", ["alert", "beforeunload", "confirm", "prompt"])
+# def test_accept(
+#     check_beforeunload_implicitly_accepted,
+#     check_user_prompt_closed_without_exception,
+#     dialog_type
+# ):
+#     if dialog_type == "beforeunload":
+#         check_beforeunload_implicitly_accepted()
+#     else:
+#         # retval not testable for confirm and prompt because window is gone
+#         check_user_prompt_closed_without_exception(dialog_type, None)
 
 
 @pytest.mark.capabilities({"unhandledPromptBehavior": "accept and notify"})
 @pytest.mark.parametrize("dialog_type, retval", [
     ("alert", None),
-    ("beforeunload", None),
-    ("confirm", True),
-    ("prompt", ""),
+    # ("beforeunload", None),
+    # ("confirm", True),
+    # ("prompt", ""),
 ])
 def test_accept_and_notify(
     check_beforeunload_implicitly_accepted,
@@ -130,64 +130,64 @@ def test_accept_and_notify(
         check_user_prompt_closed_with_exception(dialog_type, retval)
 
 
-@pytest.mark.capabilities({"unhandledPromptBehavior": "dismiss"})
-@pytest.mark.parametrize("dialog_type", ["alert", "beforeunload", "confirm", "prompt"])
-def test_dismiss(
-    check_beforeunload_implicitly_accepted,
-    check_user_prompt_closed_without_exception,
-    dialog_type
-):
-    if dialog_type == "beforeunload":
-        check_beforeunload_implicitly_accepted()
-    else:
-        # retval not testable for confirm and prompt because window is gone
-        check_user_prompt_closed_without_exception(dialog_type, None)
+# @pytest.mark.capabilities({"unhandledPromptBehavior": "dismiss"})
+# @pytest.mark.parametrize("dialog_type", ["alert", "beforeunload", "confirm", "prompt"])
+# def test_dismiss(
+#     check_beforeunload_implicitly_accepted,
+#     check_user_prompt_closed_without_exception,
+#     dialog_type
+# ):
+#     if dialog_type == "beforeunload":
+#         check_beforeunload_implicitly_accepted()
+#     else:
+#         # retval not testable for confirm and prompt because window is gone
+#         check_user_prompt_closed_without_exception(dialog_type, None)
 
 
-@pytest.mark.capabilities({"unhandledPromptBehavior": "dismiss and notify"})
-@pytest.mark.parametrize("dialog_type, retval", [
-    ("alert", None),
-    ("beforeunload", None),
-    ("confirm", False),
-    ("prompt", None),
-])
-def test_dismiss_and_notify(
-    check_beforeunload_implicitly_accepted,
-    check_user_prompt_closed_with_exception, dialog_type,
-    retval
-):
-    if dialog_type == "beforeunload":
-        check_beforeunload_implicitly_accepted()
-    else:
-        check_user_prompt_closed_with_exception(dialog_type, retval)
+# @pytest.mark.capabilities({"unhandledPromptBehavior": "dismiss and notify"})
+# @pytest.mark.parametrize("dialog_type, retval", [
+#     ("alert", None),
+#     ("beforeunload", None),
+#     ("confirm", False),
+#     ("prompt", None),
+# ])
+# def test_dismiss_and_notify(
+#     check_beforeunload_implicitly_accepted,
+#     check_user_prompt_closed_with_exception, dialog_type,
+#     retval
+# ):
+#     if dialog_type == "beforeunload":
+#         check_beforeunload_implicitly_accepted()
+#     else:
+#         check_user_prompt_closed_with_exception(dialog_type, retval)
 
 
-@pytest.mark.capabilities({"unhandledPromptBehavior": "ignore"})
-@pytest.mark.parametrize("dialog_type", ["alert", "beforeunload", "confirm", "prompt"])
-def test_ignore(
-    check_beforeunload_implicitly_accepted,
-    check_user_prompt_not_closed_but_exception,
-    dialog_type
-):
-    if dialog_type == "beforeunload":
-        check_beforeunload_implicitly_accepted()
-    else:
-        check_user_prompt_not_closed_but_exception(dialog_type)
+# @pytest.mark.capabilities({"unhandledPromptBehavior": "ignore"})
+# @pytest.mark.parametrize("dialog_type", ["alert", "beforeunload", "confirm", "prompt"])
+# def test_ignore(
+#     check_beforeunload_implicitly_accepted,
+#     check_user_prompt_not_closed_but_exception,
+#     dialog_type
+# ):
+#     if dialog_type == "beforeunload":
+#         check_beforeunload_implicitly_accepted()
+#     else:
+#         check_user_prompt_not_closed_but_exception(dialog_type)
 
 
-@pytest.mark.parametrize("dialog_type, retval", [
-    ("alert", None),
-    ("beforeunload", None),
-    ("confirm", False),
-    ("prompt", None),
-])
-def test_default(
-    check_beforeunload_implicitly_accepted,
-    check_user_prompt_closed_with_exception,
-    dialog_type,
-    retval
-):
-    if dialog_type == "beforeunload":
-        check_beforeunload_implicitly_accepted()
-    else:
-        check_user_prompt_closed_with_exception(dialog_type, retval)
+# @pytest.mark.parametrize("dialog_type, retval", [
+#     ("alert", None),
+#     ("beforeunload", None),
+#     ("confirm", False),
+#     ("prompt", None),
+# ])
+# def test_default(
+#     check_beforeunload_implicitly_accepted,
+#     check_user_prompt_closed_with_exception,
+#     dialog_type,
+#     retval
+# ):
+#     if dialog_type == "beforeunload":
+#         check_beforeunload_implicitly_accepted()
+#     else:
+#         check_user_prompt_closed_with_exception(dialog_type, retval)

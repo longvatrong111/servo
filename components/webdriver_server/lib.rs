@@ -66,6 +66,9 @@ use webdriver::response::{
 use webdriver::server::{self, Session, SessionTeardownKind, WebDriverHandler};
 
 use crate::actions::{ActionItem, InputSourceState, PointerInputState};
+use crate::user_prompt::{
+    UserPromptHandler, default_unhandled_prompt_behavior, deserialize_unhandled_prompt_behaviour,
+};
 
 #[derive(Default)]
 pub struct WebDriverMessageIdGenerator {
@@ -186,7 +189,7 @@ pub struct WebDriverSession {
 
     strict_file_interactability: bool,
 
-    unhandled_prompt_behavior: String,
+    user_prompt_handler: UserPromptHandler,
 
     /// <https://w3c.github.io/webdriver/#dfn-input-state-map>
     input_state_table: RefCell<HashMap<String, InputSourceState>>,
@@ -214,7 +217,7 @@ impl WebDriverSession {
 
             page_loading_strategy: "normal".to_string(),
             strict_file_interactability: false,
-            unhandled_prompt_behavior: "dismiss and notify".to_string(),
+            user_prompt_handler: UserPromptHandler::new(),
 
             input_state_table: RefCell::new(HashMap::new()),
             input_cancel_list: RefCell::new(Vec::new()),
@@ -653,13 +656,14 @@ impl Handler {
 
                     match processed.get("unhandledPromptBehavior") {
                         Some(unhandled_prompt_behavior) => {
-                            session.unhandled_prompt_behavior =
-                                unhandled_prompt_behavior.to_string()
+                            session.user_prompt_handler = deserialize_unhandled_prompt_behaviour(
+                                unhandled_prompt_behavior.clone(),
+                            )?;
                         },
                         None => {
                             processed.insert(
                                 "unhandledPromptBehavior".to_string(),
-                                json!(session.unhandled_prompt_behavior),
+                                json!(default_unhandled_prompt_behavior()),
                             );
                         },
                     }
@@ -2240,6 +2244,7 @@ impl WebDriverHandler<ServoExtensionRoute> for Handler {
         msg: WebDriverMessage<ServoExtensionRoute>,
     ) -> WebDriverResult<WebDriverResponse> {
         info!("{:?}", msg.command);
+        dbg!("{:?}", &msg.command);
 
         // Unless we are trying to create a new session, we need to ensure that a
         // session has previously been created

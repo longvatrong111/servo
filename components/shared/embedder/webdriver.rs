@@ -32,6 +32,7 @@ pub struct WebDriverMessageId(pub usize);
 pub enum WebDriverUserPromptAction {
     Accept,
     Dismiss,
+    Ignore,
 }
 
 /// Messages to the constellation originating from the WebDriver server.

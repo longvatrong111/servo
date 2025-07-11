@@ -526,7 +526,7 @@ impl WebViewDelegate for RunningAppState {
             .load_status_senders
             .get(&webview_id)
         {
-            let _ = sender.send(WebDriverLoadStatus::Complete);
+            let _ = sender.send(WebDriverLoadStatus::Blocked);
         };
 
         if self.servoshell_preferences.headless &&
