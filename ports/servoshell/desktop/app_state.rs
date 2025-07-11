@@ -753,4 +753,15 @@ impl WebViewDelegate for RunningAppState {
             },
         }
     }
+
+    fn notify_webdriver_load_status_complete(&self, webview: WebView) {
+        if let Some(sender) = self
+            .webdriver_senders
+            .borrow_mut()
+            .load_status_senders
+            .remove(&webview.id())
+        {
+            let _ = sender.send(WebDriverLoadStatus::Complete);
+        }
+    }
 }

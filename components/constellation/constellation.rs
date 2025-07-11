@@ -1381,6 +1381,8 @@ where
             // Handle a forward or back request
             EmbedderToConstellationMessage::TraverseHistory(webview_id, direction) => {
                 self.handle_traverse_history_msg(webview_id, direction);
+                self.embedder_proxy
+                    .send(EmbedderMsg::WebDriverLoadStatusComplete(webview_id));
             },
             EmbedderToConstellationMessage::ChangeViewportDetails(
                 webview_id,

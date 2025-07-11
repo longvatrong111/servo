@@ -247,6 +247,7 @@ mod from_script {
                     target_variant!("FinishJavaScriptEvaluation")
                 },
                 Self::WebDriverCommand(..) => target_variant!("WebDriverCommand"),
+                Self::WebDriverLoadStatusComplete(..) => target_variant!("WebDriverLoadStatus"),
             }
         }
     }
