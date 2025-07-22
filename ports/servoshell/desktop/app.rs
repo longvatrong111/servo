@@ -12,7 +12,6 @@ use std::time::Instant;
 use std::{env, fs};
 
 use ::servo::ServoBuilder;
-use constellation_traits::EmbedderToConstellationMessage;
 use crossbeam_channel::unbounded;
 use euclid::{Point2D, Vector2D};
 use ipc_channel::ipc;
@@ -169,21 +168,9 @@ impl App {
         let servo = servo_builder.build();
         servo.setup_logging();
 
-        // Initialize WebDriver server here before `servo` is moved.
+        let (webdriver_response_sender, webdriver_response_receiver) = ipc::channel().unwrap();
         let webdriver_receiver = self.servoshell_preferences.webdriver_port.map(|port| {
             let (embedder_sender, embedder_receiver) = unbounded();
-            let (webdriver_response_sender, webdriver_response_receiver) = ipc::channel().unwrap();
-
-            // Set the WebDriver response sender to constellation.
-            // TODO: consider using Servo API to notify embedder about input events completions
-            servo
-                .constellation_sender()
-                .send(EmbedderToConstellationMessage::SetWebDriverResponseSender(
-                    webdriver_response_sender,
-                ))
-                .unwrap_or_else(|_| {
-                    warn!("Failed to set WebDriver response sender in constellation");
-                });
 
             webdriver_server::start_server(
                 port,
@@ -202,6 +189,7 @@ impl App {
             self.servoshell_preferences.clone(),
             webdriver_receiver,
         ));
+        running_state.set_webdriver_response_sender(Some(webdriver_response_sender));
         running_state.create_and_focus_toplevel_webview(self.initial_url.clone().into_url());
 
         if let Some(ref mut minibrowser) = self.minibrowser {

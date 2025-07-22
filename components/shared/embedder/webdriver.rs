@@ -26,7 +26,10 @@ use webrender_api::units::DevicePixel;
 use crate::{MouseButton, MouseButtonAction};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WebDriverMessageId(pub usize);
+pub struct WebDriverMessageId {
+    pub id: usize,
+    pub webview_id: WebViewId,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum WebDriverUserPrompt {
@@ -245,7 +248,6 @@ pub enum WebDriverScriptCommand {
     GetTitle(IpcSender<String>),
     /// Match the element type before sending the event for webdriver `element send keys`.
     WillSendKeys(String, String, bool, IpcSender<Result<bool, ErrorStatus>>),
-    IsDocumentReadyStateComplete(IpcSender<bool>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -290,6 +292,7 @@ pub struct WebDriverCommandResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum WebDriverLoadStatus {
+    NavigationStarted,
     Complete,
     Timeout,
     Canceled,

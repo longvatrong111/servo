@@ -1874,15 +1874,8 @@ where
                 self.handle_finish_javascript_evaluation(evaluation_id, result)
             },
             ScriptToConstellationMessage::WebDriverInputComplete(msg_id) => {
-                if let Some(ref reply_sender) = self.webdriver.input_command_response_sender {
-                    reply_sender
-                        .send(WebDriverCommandResponse { id: msg_id })
-                        .unwrap_or_else(|_| {
-                            warn!("Failed to send WebDriverInputComplete {:?}", msg_id);
-                        });
-                } else {
-                    warn!("No WebDriver input_command_response_sender");
-                }
+                self.embedder_proxy
+                    .send(EmbedderMsg::WebDriverInputComplete(msg_id));
             },
         }
     }

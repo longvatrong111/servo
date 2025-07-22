@@ -122,7 +122,7 @@ impl Handler {
         browsing_context: BrowsingContextId,
     ) -> Result<(), ErrorStatus> {
         // Step 1. Wait for an action queue token with input state.
-        let new_token = self.id_generator.next();
+        let new_token = self.id_generator.next(self.verified_webview_id());
         assert!(self.current_action_id.get().is_none());
         self.current_action_id.set(Some(new_token));
 

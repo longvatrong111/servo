@@ -83,10 +83,10 @@ impl WebDriverMessageIdGenerator {
     }
 
     /// Returns a unique ID.
-    pub fn next(&self) -> WebDriverMessageId {
+    pub fn next(&self, webview_id: WebViewId) -> WebDriverMessageId {
         let id = self.counter.get();
         self.counter.set(id + 1);
-        WebDriverMessageId(id)
+        WebDriverMessageId { id, webview_id }
     }
 }
 
@@ -2129,7 +2129,7 @@ impl Handler {
 
         let (sender, receiver) = ipc::channel().unwrap();
         let webview_id = self.session()?.webview_id;
-        let browsing_context_id = self.session()?.browsing_context_id;
+        // let browsing_context_id = self.session()?.browsing_context_id;
 
         // Steps 1 - 7 + Step 8 for <option>
         let cmd = WebDriverScriptCommand::ElementClick(element.to_string(), sender);
@@ -2147,25 +2147,21 @@ impl Handler {
                     self.perform_element_click(element_id)?;
 
                     // Step 11. Try to wait for navigation to complete with session.
-                    // The most reliable way to try to wait for a potential navigation
-                    // which is caused by element click to check with script thread
-                    let (sender, receiver) = ipc::channel().unwrap();
-                    self.send_message_to_embedder(WebDriverCommandMsg::ScriptCommand(
-                        browsing_context_id,
-                        WebDriverScriptCommand::IsDocumentReadyStateComplete(sender),
-                    ))?;
-
-                    if wait_for_script_response(receiver)? {
-                        self.load_status_receiver.recv().map_err(|_| {
-                            WebDriverError::new(
+                    match self.load_status_receiver.try_recv() {
+                        Ok(WebDriverLoadStatus::NavigationStarted) => {
+                            self.wait_for_navigation_to_complete()?;
+                        },
+                        Err(_) => {
+                            self.send_message_to_embedder(
+                                WebDriverCommandMsg::RemoveLoadStatusSender(webview_id),
+                            )?;
+                        },
+                        _ => {
+                            return Err(WebDriverError::new(
                                 ErrorStatus::UnknownError,
-                                "Failed to receive load status",
-                            )
-                        })?;
-                    } else {
-                        self.send_message_to_embedder(
-                            WebDriverCommandMsg::RemoveLoadStatusSender(webview_id),
-                        )?;
+                                "Received unexpected load status",
+                            ));
+                        },
                     }
 
                     // Step 13

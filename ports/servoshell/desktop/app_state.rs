@@ -20,8 +20,9 @@ use servo::webrender_api::units::{DeviceIntPoint, DeviceIntSize};
 use servo::{
     AllowOrDenyRequest, AuthenticationRequest, FilterPattern, FormControl, GamepadHapticEffectType,
     KeyboardEvent, LoadStatus, PermissionRequest, Servo, ServoDelegate, ServoError, SimpleDialog,
-    TraversalId, WebDriverCommandMsg, WebDriverJSResult, WebDriverJSValue, WebDriverLoadStatus,
-    WebDriverUserPrompt, WebView, WebViewBuilder, WebViewDelegate,
+    TraversalId, WebDriverCommandMsg, WebDriverCommandResponse, WebDriverJSResult,
+    WebDriverJSValue, WebDriverLoadStatus, WebDriverMessageId, WebDriverUserPrompt, WebView,
+    WebViewBuilder, WebViewDelegate,
 };
 use url::Url;
 
@@ -46,6 +47,7 @@ struct WebDriverSenders {
     pub load_status_senders: HashMap<WebViewId, IpcSender<WebDriverLoadStatus>>,
     pub script_evaluation_interrupt_sender: Option<IpcSender<WebDriverJSResult>>,
     pub pending_traversals: HashMap<WebViewId, (TraversalId, IpcSender<WebDriverLoadStatus>)>,
+    pub webdriver_response_sender: Option<IpcSender<WebDriverCommandResponse>>,
 }
 
 pub(crate) struct RunningAppState {
@@ -509,6 +511,15 @@ impl RunningAppState {
             .load_status_senders
             .remove(&webview_id);
     }
+
+    pub(crate) fn set_webdriver_response_sender(
+        &self,
+        sender: Option<IpcSender<WebDriverCommandResponse>>,
+    ) {
+        self.webdriver_senders
+            .borrow_mut()
+            .webdriver_response_sender = sender;
+    }
 }
 
 struct ServoShellServoDelegate;
@@ -663,7 +674,6 @@ impl WebViewDelegate for RunningAppState {
 
     fn notify_load_status_changed(&self, webview: servo::WebView, status: LoadStatus) {
         self.inner_mut().need_update = true;
-
         if status == LoadStatus::Complete {
             if let Some(sender) = self
                 .webdriver_senders
@@ -789,6 +799,31 @@ impl WebViewDelegate for RunningAppState {
                     Dialog::new_color_picker_dialog(color_picker, offset),
                 );
             },
+        }
+    }
+
+    fn request_navigation(&self, webview: WebView, _request: servo::NavigationRequest) {
+        if let Some(sender) = self
+            .webdriver_senders
+            .borrow_mut()
+            .load_status_senders
+            .get(&webview.id())
+        {
+            let _ = sender.send(WebDriverLoadStatus::NavigationStarted);
+        }
+    }
+
+    fn notify_webdriver_input_complete(&self, webdriver_msg_id: WebDriverMessageId) {
+        if let Some(ref sender) = self
+            .webdriver_senders
+            .borrow_mut()
+            .webdriver_response_sender
+        {
+            let _ = sender.send(WebDriverCommandResponse {
+                id: webdriver_msg_id,
+            });
+        } else {
+            error!("No WebDriver response sender available to notify input completion.");
         }
     }
 }

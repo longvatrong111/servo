@@ -1053,6 +1053,15 @@ impl Servo {
                     warn!("Failed to respond to GetScreenMetrics: {error}");
                 }
             },
+            EmbedderMsg::WebDriverInputComplete(webdriver_msg_id) => {
+                if let Some(webview) = self.get_webview_handle(webdriver_msg_id.webview_id) {
+                    webview
+                        .delegate()
+                        .notify_webdriver_input_complete(webdriver_msg_id);
+                } else {
+                    warn!("Received WebDriverInputComplete for non-existing WebView");
+                }
+            },
         }
     }
 
