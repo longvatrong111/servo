@@ -168,8 +168,6 @@ pub enum WebDriverCommandMsg {
     ),
     GetAlertText(WebViewId, IpcSender<Result<String, ()>>),
     SendAlertText(WebViewId, String),
-    AddLoadStatusSender(WebViewId, IpcSender<WebDriverLoadStatus>),
-    RemoveLoadStatusSender(WebViewId),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -245,7 +243,10 @@ pub enum WebDriverScriptCommand {
     GetTitle(IpcSender<String>),
     /// Deal with the case of input element for Element Send Keys, which does not send keys.
     WillSendKeys(String, String, bool, IpcSender<Result<bool, ErrorStatus>>),
+    AddLoadStatusSender(WebViewId, IpcSender<WebDriverLoadStatus>),
+    RemoveLoadStatusSender(WebViewId),
     IsDocumentReadyStateComplete(IpcSender<bool>),
+    WaitCurrentDomEvents(IpcSender<Result<(), ErrorStatus>>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -290,8 +291,18 @@ pub struct WebDriverCommandResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum WebDriverLoadStatus {
+    // Navigation starts by loading an url
+    NavigationStarted,
+    // Navigation starts by changing the hash of the current url
+    NavigationHashChanged,
+    // Document loading
+    Loading,
+    // Document loaded
     Complete,
+    // Load timeout
     Timeout,
+    // Navigation is canceled
     Canceled,
+    // Navigation is blocked by a user prompt
     Blocked,
 }

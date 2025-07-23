@@ -8,7 +8,9 @@ use std::ptr::NonNull;
 
 use base::id::{BrowsingContextId, PipelineId};
 use cookie::Cookie;
-use embedder_traits::{WebDriverFrameId, WebDriverJSError, WebDriverJSResult, WebDriverJSValue};
+use embedder_traits::{
+    WebDriverFrameId, WebDriverJSError, WebDriverJSResult, WebDriverJSValue, WebDriverLoadStatus,
+};
 use euclid::default::{Point2D, Rect, Size2D};
 use hyper_serde::Serde;
 use ipc_channel::ipc::{self, IpcSender};
@@ -1805,4 +1807,45 @@ pub(crate) fn handle_try_wait_for_document_navigation(
     let wait_for_document_ready = document.ReadyState() != DocumentReadyState::Complete;
 
     reply.send(wait_for_document_ready).unwrap();
+}
+
+pub(crate) fn handle_add_load_status_sender(
+    documents: &DocumentCollection,
+    pipeline: PipelineId,
+    reply: IpcSender<WebDriverLoadStatus>,
+) {
+    if let Some(document) = documents.find_document(pipeline) {
+        let window = document.window();
+        window.set_webdriver_load_status_sender(Some(reply));
+    }
+}
+
+pub(crate) fn handle_remove_load_status_sender(
+    documents: &DocumentCollection,
+    pipeline: PipelineId,
+) {
+    if let Some(document) = documents.find_document(pipeline) {
+        let window = document.window();
+        window.set_webdriver_load_status_sender(None);
+    }
+}
+
+pub(crate) fn handle_wait_current_dom_events(
+    documents: &DocumentCollection,
+    pipeline_id: PipelineId,
+    reply: IpcSender<Result<(), ErrorStatus>>,
+) {
+    if let Some(document) = documents.find_document(pipeline_id) {
+        document
+            .owner_global()
+            .task_manager()
+            .dom_manipulation_task_source()
+            .queue(
+                task!(notify_webdriver_current_dom_events_completed: move || {
+                    let _ = reply.send(Ok(()));
+                }),
+            );
+    } else {
+        let _ = reply.send(Err(ErrorStatus::UnknownError));
+    }
 }

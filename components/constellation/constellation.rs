@@ -133,7 +133,7 @@ use embedder_traits::{
     FocusSequenceNumber, InputEvent, JSValue, JavaScriptEvaluationError, JavaScriptEvaluationId,
     KeyboardEvent, MediaSessionActionType, MediaSessionEvent, MediaSessionPlaybackState,
     MouseButton, MouseButtonAction, MouseButtonEvent, Theme, ViewportDetails, WebDriverCommandMsg,
-    WebDriverCommandResponse,
+    WebDriverCommandResponse, WebDriverLoadStatus, WebDriverScriptCommand,
 };
 use euclid::Size2D;
 use euclid::default::Size2D as UntypedSize2D;
@@ -395,6 +395,9 @@ pub struct Constellation<STF, SWF> {
     /// Pipeline IDs are namespaced in order to avoid name collisions,
     /// and the namespaces are allocated by the constellation.
     next_pipeline_namespace_id: PipelineNamespaceId,
+
+    /// An [`IpcSender`] to notify navigation events to webdriver.
+    webdriver_load_status_sender: Option<(IpcSender<WebDriverLoadStatus>, PipelineId)>,
 
     /// An [`IpcSender`] to forward responses from the `ScriptThread` to the WebDriver server.
     webdriver_input_command_reponse_sender: Option<IpcSender<WebDriverCommandResponse>>,
@@ -666,6 +669,7 @@ where
                     time_profiler_chan: state.time_profiler_chan,
                     mem_profiler_chan: state.mem_profiler_chan.clone(),
                     phantom: PhantomData,
+                    webdriver_load_status_sender: None,
                     webdriver_input_command_reponse_sender: None,
                     document_states: HashMap::new(),
                     #[cfg(feature = "webgpu")]
@@ -1252,8 +1256,22 @@ where
                 match pending {
                     Some((load_data, history_handling)) => {
                         if allowed {
+                            if let Some((sender, id)) = &self.webdriver_load_status_sender {
+                                if pipeline_id == *id {
+                                    let _ = sender.send(WebDriverLoadStatus::Loading);
+                                    self.webdriver_load_status_sender = None;
+                                }
+                            }
+
                             self.load_url(webview_id, pipeline_id, load_data, history_handling);
                         } else {
+                            if let Some((sender, id)) = &self.webdriver_load_status_sender {
+                                if pipeline_id == *id {
+                                    let _ = sender.send(WebDriverLoadStatus::Canceled);
+                                    self.webdriver_load_status_sender = None;
+                                }
+                            }
+
                             let pipeline_is_top_level_pipeline = self
                                 .browsing_contexts
                                 .get(&BrowsingContextId::from(webview_id))
@@ -4410,6 +4428,17 @@ where
                     .get(&browsing_context_id)
                     .expect("ScriptCommand: Browsing context must exist at this point")
                     .pipeline_id;
+
+                match &cmd {
+                    WebDriverScriptCommand::AddLoadStatusSender(_, sender) => {
+                        self.webdriver_load_status_sender = Some((sender.clone(), pipeline_id));
+                    },
+                    WebDriverScriptCommand::RemoveLoadStatusSender(_) => {
+                        self.webdriver_load_status_sender = None;
+                    },
+                    _ => {},
+                };
+
                 let control_msg = ScriptThreadMessage::WebDriverScriptCommand(pipeline_id, cmd);
                 let result = match self.pipelines.get(&pipeline_id) {
                     Some(pipeline) => pipeline.event_loop.send(control_msg),
