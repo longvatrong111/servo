@@ -575,7 +575,7 @@ impl App {
                     }
                 },
                 WebDriverCommandMsg::ScriptCommand(_, ref webdriver_script_command) => {
-                    self.handle_webdriver_script_commnd(webdriver_script_command, running_state);
+                    self.handle_webdriver_script_command(webdriver_script_command, running_state);
                     running_state.servo().execute_webdriver_command(msg);
                 },
                 WebDriverCommandMsg::CurrentUserPrompt(webview_id, response_sender) => {
@@ -645,11 +645,10 @@ impl App {
                 running_state.set_script_command_interrupt_sender(Some(response_sender.clone()));
             },
             WebDriverScriptCommand::AddLoadStatusSender(webview_id, load_status_sender) => {
-                running_state
-                    .set_load_status_sender(webview_id.clone(), load_status_sender.clone());
+                running_state.set_load_status_sender(*webview_id, load_status_sender.clone());
             },
             WebDriverScriptCommand::RemoveLoadStatusSender(webview_id) => {
-                running_state.remove_load_status_sender(webview_id.clone());
+                running_state.remove_load_status_sender(*webview_id);
             },
             _ => {
                 running_state.set_script_command_interrupt_sender(None);

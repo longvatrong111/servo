@@ -2646,7 +2646,7 @@ impl Window {
             // TODO: Fragment handling appears to have moved to step 13
             if let Some(fragment) = load_data.url.fragment() {
                 if let Some(sender) = self.webdriver_load_status_sender.borrow().as_ref() {
-                    let _ = sender.send(WebDriverLoadStatus::NavigationHashChanged);
+                    let _ = sender.send(WebDriverLoadStatus::NavigationToFragment);
                 }
 
                 self.send_to_constellation(ScriptToConstellationMessage::NavigatedToFragment(

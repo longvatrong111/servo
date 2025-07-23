@@ -806,7 +806,6 @@ impl Handler {
         Ok(WebDriverResponse::Void)
     }
 
-    /// <https://w3c.github.io/webdriver/#dfn-wait-for-navigation-to-complete>
     fn wait_for_document_ready_state(&self) -> WebDriverResult<WebDriverResponse> {
         debug!("waiting for load");
 
@@ -857,23 +856,38 @@ impl Handler {
         result
     }
 
+    /// <https://w3c.github.io/webdriver/#dfn-wait-for-navigation-to-complete>
     fn wait_for_navigation(&self) -> WebDriverResult<WebDriverResponse> {
         let browsing_context_id = self.session()?.browsing_context_id;
 
-        match self.load_status_receiver.try_recv() {
-            Ok(WebDriverLoadStatus::NavigationStarted) => {
+        let navigation_status = match self.load_status_receiver.try_recv() {
+            Ok(status) => status,
+            // Empty channel means no navigation started. Nothing to wait for.
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                return Ok(WebDriverResponse::Void);
+            },
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                return Err(WebDriverError::new(
+                    ErrorStatus::UnknownError,
+                    "Load status channel disconnected",
+                ));
+            },
+        };
+
+        match navigation_status {
+            WebDriverLoadStatus::NavigationStarted => {
                 // Check if the navigation is approved or not with constellation
                 match self.load_status_receiver.recv() {
-                    Ok(WebDriverLoadStatus::Loading) => {
-                        self.wait_for_document_ready_state()?;
-                        Ok(WebDriverResponse::Void)
-                    },
+                    Ok(WebDriverLoadStatus::Loading) => self.wait_for_document_ready_state(),
                     Ok(WebDriverLoadStatus::Canceled) => Ok(WebDriverResponse::Void),
                     Ok(_) => unreachable!("Unexpected load status received"),
-                    Err(_) => Ok(WebDriverResponse::Void),
+                    Err(_) => Err(WebDriverError::new(
+                        ErrorStatus::UnknownError,
+                        "Unknown error",
+                    )),
                 }
             },
-            Ok(WebDriverLoadStatus::NavigationHashChanged) => {
+            WebDriverLoadStatus::NavigationToFragment => {
                 let (sender, receiver) = ipc::channel().unwrap();
                 self.send_message_to_embedder(WebDriverCommandMsg::ScriptCommand(
                     browsing_context_id,
@@ -882,21 +896,17 @@ impl Handler {
                 let _ = wait_for_script_response(receiver)?;
                 Ok(WebDriverResponse::Void)
             },
-            Ok(WebDriverLoadStatus::Loading) |
-            Ok(WebDriverLoadStatus::Canceled) |
-            Ok(WebDriverLoadStatus::Complete) => {
-                // TODO: We may ignore Complete?
-                unreachable!("Unexpected load status received")
-            },
-            Ok(WebDriverLoadStatus::Timeout) => {
-                // If the load status is timeout, we should return an error
-                Err(WebDriverError::new(
-                    ErrorStatus::Timeout,
-                    "Navigation timed out",
-                ))
-            },
-            // Empty channel means no navigation started
-            Err(_) | Ok(WebDriverLoadStatus::Blocked) => Ok(WebDriverResponse::Void),
+            // These events are only fired during parsing stage after a navigation is started
+            // If we receive any of these, it means webriver missed the NavigationStarted event.
+            WebDriverLoadStatus::Loading |
+            WebDriverLoadStatus::Canceled |
+            WebDriverLoadStatus::Complete |
+            WebDriverLoadStatus::Blocked => unreachable!("Unexpected load status received"),
+            // If the load status is timeout, return an error
+            WebDriverLoadStatus::Timeout => Err(WebDriverError::new(
+                ErrorStatus::Timeout,
+                "Navigation timed out",
+            )),
         }
     }
 

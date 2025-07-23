@@ -294,7 +294,7 @@ pub enum WebDriverLoadStatus {
     // Navigation starts by loading an url
     NavigationStarted,
     // Navigation starts by changing the hash of the current url
-    NavigationHashChanged,
+    NavigationToFragment,
     // Document loading
     Loading,
     // Document loaded
