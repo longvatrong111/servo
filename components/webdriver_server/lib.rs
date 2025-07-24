@@ -833,7 +833,9 @@ impl Handler {
 
         let result = select! {
             recv(self.load_status_receiver) -> res => {
-                    match res {
+                match res {
+                    // If the navigation is navigation to IFrame, no document state
+                    Ok(WebDriverLoadStatus::NavigationToIFrame) => Ok(WebDriverResponse::Void),
                     Ok(WebDriverLoadStatus::Blocked) => {
                         // TODO: evaluate the correctness later
                         // Load status is block means an user prompt is shown.
@@ -842,10 +844,12 @@ impl Handler {
                         // If user prompt can't be handler, next command returns
                         // an error anyway.
                         Ok(WebDriverResponse::Void)
-                    }
-                    _ => {
-                        Ok(WebDriverResponse::Void)
-                    }
+                    },
+                    Ok(WebDriverLoadStatus::Complete) => Ok(WebDriverResponse::Void),
+                    _ => Err(WebDriverError::new(
+                        ErrorStatus::UnknownError,
+                        "Unexpected load status received",
+                    )),
                 }
             },
             recv(after(Duration::from_millis(timeout))) -> _ => Err(
@@ -864,6 +868,7 @@ impl Handler {
             Ok(status) => status,
             // Empty channel means no navigation started. Nothing to wait for.
             Err(crossbeam_channel::TryRecvError::Empty) => {
+                dbg!("No navigation started, returning success");
                 return Ok(WebDriverResponse::Void);
             },
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
@@ -873,6 +878,8 @@ impl Handler {
                 ));
             },
         };
+
+        dbg!("Navigation status: {:?}", &navigation_status);
 
         match navigation_status {
             WebDriverLoadStatus::NavigationStarted => {
@@ -900,6 +907,7 @@ impl Handler {
             // If we receive any of these, it means webriver missed the NavigationStarted event.
             WebDriverLoadStatus::Loading |
             WebDriverLoadStatus::Canceled |
+            WebDriverLoadStatus::NavigationToIFrame |
             WebDriverLoadStatus::Complete |
             WebDriverLoadStatus::Blocked => unreachable!("Unexpected load status received"),
             // If the load status is timeout, return an error
