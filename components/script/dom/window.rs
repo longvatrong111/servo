@@ -2645,7 +2645,8 @@ impl Window {
             // Step 6
             // TODO: Fragment handling appears to have moved to step 13
             if let Some(fragment) = load_data.url.fragment() {
-                if let Some(sender) = self.webdriver_load_status_sender.borrow().as_ref() {
+                let webdriver_sender = self.webdriver_load_status_sender.borrow().clone();
+                if let Some(ref sender) = webdriver_sender {
                     let _ = sender.send(WebDriverLoadStatus::NavigationToFragment);
                 }
 
@@ -2668,6 +2669,9 @@ impl Window {
                         new_url,
                         CanGc::note());
                     event.upcast::<Event>().fire(this.upcast::<EventTarget>(), CanGc::note());
+                    if let Some(sender) = webdriver_sender {
+                        let _ = sender.send(WebDriverLoadStatus::NavigationToFragmentDone);
+                    }
                 });
                 self.as_global_scope()
                     .task_manager()

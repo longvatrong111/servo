@@ -2519,13 +2519,6 @@ impl ScriptThread {
                 reply,
                 can_gc,
             ),
-            WebDriverScriptCommand::IsDocumentReadyStateComplete(response_sender) => {
-                webdriver_handlers::handle_try_wait_for_document_navigation(
-                    &documents,
-                    pipeline_id,
-                    response_sender,
-                )
-            },
             WebDriverScriptCommand::AddLoadStatusSender(_, response_sender) => {
                 webdriver_handlers::handle_add_load_status_sender(
                     &documents,

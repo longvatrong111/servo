@@ -245,7 +245,6 @@ pub enum WebDriverScriptCommand {
     WillSendKeys(String, String, bool, IpcSender<Result<bool, ErrorStatus>>),
     AddLoadStatusSender(WebViewId, IpcSender<WebDriverLoadStatus>),
     RemoveLoadStatusSender(WebViewId),
-    IsDocumentReadyStateComplete(IpcSender<bool>),
     WaitCurrentDomEvents(IpcSender<Result<(), ErrorStatus>>),
 }
 
@@ -293,8 +292,11 @@ pub struct WebDriverCommandResponse {
 pub enum WebDriverLoadStatus {
     // Navigation starts by loading an url
     NavigationStarted,
-    // Navigation starts by changing the hash of the current url
+    // Navigation starts by changing the fragment of the current url
     NavigationToFragment,
+    // Navigation triggered by changing the fragment of the current url
+    // is done
+    NavigationToFragmentDone,
     // Document loading
     Loading,
     // Document loaded
