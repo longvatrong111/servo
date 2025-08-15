@@ -178,7 +178,7 @@ impl Handler {
     pub(crate) fn handle_dismiss_alert(&self) -> WebDriverResult<WebDriverResponse> {
         // Step 1. If session's current top-level browsing context is no longer open,
         // return error with error code no such window.
-        self.verify_top_level_browsing_context_is_open(self.session()?.webview_id)?;
+        self.verify_top_level_browsing_context_is_open(self.webview_id()?)?;
 
         // Step 3. Dismiss the current user prompt.
         let (sender, receiver) = ipc::channel().unwrap();
@@ -203,7 +203,7 @@ impl Handler {
     pub(crate) fn handle_accept_alert(&self) -> WebDriverResult<WebDriverResponse> {
         // Step 1. If session's current top-level browsing context is no longer open,
         // return error with error code no such window.
-        self.verify_top_level_browsing_context_is_open(self.session()?.webview_id)?;
+        self.verify_top_level_browsing_context_is_open(self.webview_id()?)?;
 
         // Step 3. Accept the current user prompt.
         let (sender, receiver) = ipc::channel().unwrap();
@@ -228,7 +228,7 @@ impl Handler {
     pub(crate) fn handle_get_alert_text(&self) -> WebDriverResult<WebDriverResponse> {
         // Step 1. If session's current top-level browsing context is no longer open,
         // return error with error code no such window.
-        self.verify_top_level_browsing_context_is_open(self.session()?.webview_id)?;
+        self.verify_top_level_browsing_context_is_open(self.webview_id()?)?;
 
         let (sender, receiver) = ipc::channel().unwrap();
         self.send_message_to_embedder(WebDriverCommandMsg::GetAlertText(
@@ -261,7 +261,7 @@ impl Handler {
         &self,
         text: String,
     ) -> WebDriverResult<WebDriverResponse> {
-        let webview_id = self.session()?.webview_id;
+        let webview_id = self.webview_id()?;
 
         // Step 3. If session's current top-level browsing context is no longer open,
         // return error with error code no such window.
