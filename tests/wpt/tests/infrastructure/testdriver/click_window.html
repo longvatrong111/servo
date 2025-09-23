@@ -11,6 +11,7 @@ setup({single_test: true});
 addEventListener("load", () => {
     let child = window.open("click_child.html");
     child.addEventListener("load", () => {
+        console.log("child loaded");
         let button = child.document.getElementById("button");
         test_driver
             .click(button)

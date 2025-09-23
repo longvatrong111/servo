@@ -537,6 +537,15 @@ impl EventTarget {
         )
     }
 
+    pub(crate) fn copy_event_listeners_from(&self, other: &EventTarget) {
+        let other_handlers = other.handlers.borrow();
+        let mut handlers = self.handlers.borrow_mut();
+
+        for (ty, listeners) in other_handlers.iter() {
+            handlers.insert(ty.clone(), listeners.clone());
+        }
+    }
+
     /// Determine if there are any listeners for a given event type.
     /// See <https://github.com/whatwg/dom/issues/453>.
     pub(crate) fn has_listeners_for(&self, type_: &Atom) -> bool {

@@ -171,6 +171,10 @@ impl ServoParser {
         self.can_write()
     }
 
+    pub(crate) fn prevent_document_load_event_notification(&self) {
+        self.document.loader_mut().inhibit_events();
+    }
+
     /// <https://html.spec.whatwg.org/multipage/#parse-html-from-a-string>
     pub(crate) fn parse_html_document(
         document: &Document,
@@ -899,6 +903,12 @@ impl ParserContext {
                 final_sandboxing_flag_set: SandboxingFlagSet::empty(),
                 resource_header: vec![],
             },
+        }
+    }
+
+    pub fn prevent_document_load_event_notification(&self) {
+        if let Some(ref parser) = self.parser.as_ref().map(|p| p.root()) {
+            parser.prevent_document_load_event_notification();
         }
     }
 

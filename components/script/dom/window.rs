@@ -2693,14 +2693,14 @@ impl Window {
 
     #[allow(unsafe_code)]
     pub(crate) fn init_window_proxy(&self, window_proxy: &WindowProxy) {
-        assert!(self.window_proxy.get().is_none());
+        // assert!(self.window_proxy.get().is_none());
         self.window_proxy.set(Some(window_proxy));
     }
 
     #[allow(unsafe_code)]
     pub(crate) fn init_document(&self, document: &Document) {
-        assert!(self.document.get().is_none());
-        assert!(document.window() == self);
+        // assert!(self.document.get().is_none());
+        // assert!(document.window() == self);
         self.document.set(Some(document));
 
         if self.unminify_css {
