@@ -336,7 +336,8 @@ impl WindowProxy {
             // change this later.
             theme: window.theme(),
         };
-        ScriptThread::process_attach_layout(new_layout_info, document.origin().clone());
+        dbg!("Create auxiliary browsing context: processing attach layout");
+        ScriptThread::process_attach_layout(new_layout_info, document.origin().clone(), false);
         let new_window_proxy = ScriptThread::find_document(response.new_pipeline_id)
             .and_then(|doc| doc.browsing_context())?;
         if name.to_lowercase() != "_blank" {

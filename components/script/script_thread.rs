@@ -662,14 +662,18 @@ impl ScriptThread {
         true
     }
 
-    pub(crate) fn process_attach_layout(new_layout_info: NewLayoutInfo, origin: MutableOrigin) {
+    pub(crate) fn process_attach_layout(
+        new_layout_info: NewLayoutInfo,
+        origin: MutableOrigin,
+        notify: bool,
+    ) {
         with_script_thread(|script_thread| {
             let pipeline_id = Some(new_layout_info.new_pipeline_id);
             script_thread.profile_event(
                 ScriptThreadEventCategory::AttachLayout,
                 pipeline_id,
                 || {
-                    script_thread.handle_new_layout(new_layout_info, origin);
+                    script_thread.handle_new_layout(new_layout_info, origin, notify);
                 },
             )
         });
@@ -1385,7 +1389,7 @@ impl ScriptThread {
                                 MutableOrigin::new(ImmutableOrigin::new_opaque())
                             };
 
-                            self.handle_new_layout(new_layout_info, origin);
+                            self.handle_new_layout(new_layout_info, origin, true);
                         },
                     )
                 },
@@ -2507,7 +2511,12 @@ impl ScriptThread {
         warn!("Page rect message sent to nonexistent pipeline");
     }
 
-    fn handle_new_layout(&self, new_layout_info: NewLayoutInfo, origin: MutableOrigin) {
+    fn handle_new_layout(
+        &self,
+        new_layout_info: NewLayoutInfo,
+        origin: MutableOrigin,
+        notify: bool,
+    ) {
         let NewLayoutInfo {
             parent_info,
             new_pipeline_id,
@@ -2533,7 +2542,7 @@ impl ScriptThread {
             load_data,
         );
         if url.as_str() == "about:blank" {
-            self.start_page_load_about_blank(new_load);
+            self.start_page_load_about_blank(new_load, notify);
         } else if url.as_str() == "about:srcdoc" {
             self.page_load_about_srcdoc(new_load);
         } else {
@@ -3320,6 +3329,27 @@ impl ScriptThread {
             incomplete.load_data.inherited_secure_context,
             incomplete.theme,
         );
+
+        let current_window = incomplete
+            .load_data
+            .creator_pipeline_id
+            .and_then(|id| self.documents.borrow().find_window(id));
+        let current_url = incomplete
+            .load_data
+            .creator_pipeline_id
+            .and_then(|id| self.documents.borrow().find_document(id))
+            .map(|doc| doc.url().as_str().to_string());
+
+        if current_url.is_some() &&
+            current_url.unwrap() == "about:blank" &&
+            current_window.is_some()
+        {
+            use crate::dom::eventtarget::EventTarget;
+            window
+                .upcast::<EventTarget>()
+                .copy_event_listeners_from(&current_window.unwrap().upcast::<EventTarget>());
+        }
+
         self.debugger_global.fire_add_debuggee(
             can_gc,
             window.upcast(),
@@ -3422,7 +3452,6 @@ impl ScriptThread {
         self.documents
             .borrow_mut()
             .insert(incomplete.pipeline_id, &document);
-
         window.init_document(&document);
 
         // For any similar-origin iframe, ensure that the contentWindow/contentDocument
@@ -3802,7 +3831,7 @@ impl ScriptThread {
 
     /// Synchronously fetch `about:blank`. Stores the `InProgressLoad`
     /// argument until a notification is received that the fetch is complete.
-    fn start_page_load_about_blank(&self, mut incomplete: InProgressLoad) {
+    fn start_page_load_about_blank(&self, mut incomplete: InProgressLoad, notify: bool) {
         let id = incomplete.pipeline_id;
 
         let url = ServoUrl::parse("about:blank").unwrap();
@@ -3834,6 +3863,10 @@ impl ScriptThread {
             dummy_request_id,
             Ok(ResourceFetchTiming::new(ResourceTimingType::None)),
         );
+
+        if !notify {
+            context.prevent_document_load_event_notification();
+        }
     }
 
     /// Synchronously parse a srcdoc document from a giving HTML string.

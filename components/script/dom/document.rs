@@ -2083,7 +2083,11 @@ impl Document {
             return;
         }
 
-        assert!(!self.loader.borrow().events_inhibited());
+        // assert!(!self.loader.borrow().events_inhibited());
+        // if self.loader.borrow().events_inhibited() {
+        //     return;
+        // }
+        let notify_load = !self.loader.borrow().events_inhibited();
         self.loader.borrow_mut().inhibit_events();
 
         // The rest will ever run only once per document.
@@ -2101,6 +2105,8 @@ impl Document {
                 }
 
                 // Step 7.1.
+                let url = document.url().clone();
+                dbg!("Set readyState to 'complete' for {:?}", &url);
                 document.set_ready_state(DocumentReadyState::Complete, CanGc::note());
 
                 // Step 7.2.
@@ -2116,14 +2122,16 @@ impl Document {
                 );
                 event.set_trusted(true);
 
-                // http://w3c.github.io/navigation-timing/#widl-PerformanceNavigationTiming-loadEventStart
-                update_with_current_instant(&document.load_event_start);
+                if notify_load {
+                    // http://w3c.github.io/navigation-timing/#widl-PerformanceNavigationTiming-loadEventStart
+                    update_with_current_instant(&document.load_event_start);
 
-                debug!("About to dispatch load for {:?}", document.url());
-                window.dispatch_event_with_target_override(&event, CanGc::note());
+                    debug!("About to dispatch load for {:?}", document.url());
+                    window.dispatch_event_with_target_override(&event, CanGc::note());
 
-                // http://w3c.github.io/navigation-timing/#widl-PerformanceNavigationTiming-loadEventEnd
-                update_with_current_instant(&document.load_event_end);
+                    // http://w3c.github.io/navigation-timing/#widl-PerformanceNavigationTiming-loadEventEnd
+                    update_with_current_instant(&document.load_event_end);
+                }
 
                 if let Some(fragment) = document.url().fragment() {
                     document.check_and_scroll_fragment(fragment);
