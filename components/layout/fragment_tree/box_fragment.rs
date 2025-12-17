@@ -354,21 +354,8 @@ impl BoxFragment {
         tree.new_level(format!(
             "Box\
                 \nbase={:?}\
-                \ncontent={:?}\
-                \npadding rect={:?}\
-                \nborder rect={:?}\
-                \nmargin={:?}\
-                \nscrollable_overflow={:?}\
-                \nbaselines={:?}\
-                \noverflow={:?}",
-            self.base,
-            self.content_rect,
-            self.padding_rect(),
-            self.border_rect(),
-            self.margin,
-            self.scrollable_overflow(),
-            self.baselines,
-            self.style.effective_overflow(self.base.flags),
+                \ncontent={:?}",
+            self.base, self.content_rect,
         ));
 
         for child in &self.children {
