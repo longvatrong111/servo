@@ -190,6 +190,11 @@ impl HTMLDetailsElement {
             can_gc,
         );
         let summary = DomRoot::downcast::<HTMLSlotElement>(summary).unwrap();
+        // Ensure slotted summaries participate in the host's formatting context (e.g. grid/flex)
+        // rather than being wrapped by a box-generating slot.
+        summary
+            .upcast::<Element>()
+            .set_string_attribute(&local_name!("style"), "display: contents;".into(), can_gc);
         root.upcast::<Node>()
             .AppendChild(summary.upcast::<Node>(), can_gc)
             .unwrap();
@@ -274,7 +279,9 @@ impl HTMLDetailsElement {
         let shadow_tree = self.shadow_tree(can_gc);
 
         let value = if self.Open() {
-            "display: block;"
+            // When open, avoid introducing an extra box around the slotted descendants.
+            // This matches the expected behavior when authors set `::details-content { display: contents; }`.
+            "display: contents;"
         } else {
             // TODO: This should be "display: block; content-visibility: hidden;",
             // but servo does not support content-visibility yet
