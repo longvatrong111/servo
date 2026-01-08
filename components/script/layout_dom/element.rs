@@ -215,6 +215,19 @@ impl<'dom> style::dom::TElement for ServoLayoutElement<'dom> {
             return self.pseudo_element_originating_element();
         }
 
+        // if let Some(assigned_slot) = self.assigned_slot() {
+        //     return Some(assigned_slot);
+        // }
+
+        // if self.parent_node_is_shadow_root() {
+        //     return self.containing_shadow_host();
+        // };
+
+        // if let Some(parent) = self.as_node().parent_element() {
+        //     return Some(parent);
+        // }
+
+        // None
         self.traversal_parent()
     }
 
