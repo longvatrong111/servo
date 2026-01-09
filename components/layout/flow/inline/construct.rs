@@ -320,6 +320,8 @@ impl InlineFormattingContextBuilder {
             return;
         }
 
+        let current_inline_styles = self.shared_inline_styles();
+
         let selection_range = info.get_selection_range();
         if let Some(last_character) = new_text.chars().next_back() {
             self.on_word_boundary = last_character.is_whitespace();
@@ -332,14 +334,26 @@ impl InlineFormattingContextBuilder {
         self.text_segments.push(new_text);
 
         if let Some(InlineItem::TextRun(text_run)) = self.inline_items.last() {
-            text_run.borrow_mut().text_range.end = new_range.end;
-            return;
+            let mut borrowed_text_run = text_run.borrow_mut();
+            let same_style_parent = borrowed_text_run
+                .inline_styles
+                .style
+                .ptr_eq(&current_inline_styles.style) &&
+                borrowed_text_run
+                    .inline_styles
+                    .selected
+                    .ptr_eq(&current_inline_styles.selected);
+
+            if same_style_parent {
+                borrowed_text_run.text_range.end = new_range.end;
+                return;
+            }
         }
 
         self.inline_items
             .push(InlineItem::TextRun(ArcRefCell::new(TextRun::new(
                 info.into(),
-                self.shared_inline_styles(),
+                current_inline_styles,
                 new_range,
                 selection_range,
             ))));
