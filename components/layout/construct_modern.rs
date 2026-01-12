@@ -8,12 +8,14 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use servo_arc::Arc as ServoArc;
 use style::selector_parser::PseudoElement;
 
 use crate::PropagatedBoxTreeData;
 use crate::context::LayoutContext;
 use crate::dom::{BoxSlot, LayoutBox};
 use crate::dom_traversal::{Contents, NodeAndStyleInfo, TraversalHandler};
+use crate::flow::inline::SharedInlineStyles;
 use crate::flow::inline::construct::InlineFormattingContextBuilder;
 use crate::flow::{BlockContainer, BlockFormattingContext};
 use crate::formatting_contexts::{
@@ -31,6 +33,14 @@ pub(crate) struct ModernContainerBuilder<'a, 'dom> {
     /// To be run in parallel with rayon in `finish`
     jobs: Vec<ModernContainerJob<'dom>>,
     has_text_runs: bool,
+
+    /// A stack of `display: contents` styles currently in scope.
+    ///
+    /// This matters for modern layout modes (flex/grid) because `display: contents` elements do
+    /// not generate boxes but still provide styling for their children. `<slot>` behaves like
+    /// `display: contents` for box tree construction, so without this, slotted text can inherit
+    /// from the wrong ancestor in flex/grid containers.
+    display_contents_shared_styles: Vec<SharedInlineStyles>,
 }
 
 enum ModernContainerJob<'dom> {
@@ -51,9 +61,40 @@ impl<'dom> ModernContainerJob<'dom> {
     ) -> Option<ModernItem<'dom>> {
         match self {
             ModernContainerJob::TextRuns(runs) => {
+                fn shared_inline_styles_ptr_eq(
+                    lhs: &SharedInlineStyles,
+                    rhs: &SharedInlineStyles,
+                ) -> bool {
+                    let lhs_style = lhs.style.borrow();
+                    let rhs_style = rhs.style.borrow();
+                    let lhs_selected = lhs.selected.borrow();
+                    let rhs_selected = rhs.selected.borrow();
+                    ServoArc::ptr_eq(&*lhs_style, &*rhs_style) &&
+                        ServoArc::ptr_eq(&*lhs_selected, &*rhs_selected)
+                }
+
                 let mut inline_formatting_context_builder =
                     InlineFormattingContextBuilder::new(builder.info);
+                let mut active_display_contents: Vec<SharedInlineStyles> = Vec::new();
+
                 for flex_text_run in runs.into_iter() {
+                    let desired = &flex_text_run.display_contents_shared_styles;
+                    let common_prefix_len = active_display_contents
+                        .iter()
+                        .zip(desired.iter())
+                        .take_while(|(lhs, rhs)| shared_inline_styles_ptr_eq(lhs, rhs))
+                        .count();
+
+                    while active_display_contents.len() > common_prefix_len {
+                        inline_formatting_context_builder.leave_display_contents();
+                        active_display_contents.pop();
+                    }
+
+                    for styles in desired.iter().skip(common_prefix_len).cloned() {
+                        inline_formatting_context_builder.enter_display_contents(styles.clone());
+                        active_display_contents.push(styles);
+                    }
+
                     inline_formatting_context_builder
                         .push_text(flex_text_run.text, &flex_text_run.info);
                 }
@@ -141,6 +182,7 @@ impl<'dom> ModernContainerJob<'dom> {
 struct ModernContainerTextRun<'dom> {
     info: NodeAndStyleInfo<'dom>,
     text: Cow<'dom, str>,
+    display_contents_shared_styles: Vec<SharedInlineStyles>,
 }
 
 impl ModernContainerTextRun<'_> {
@@ -172,7 +214,16 @@ impl<'dom> TraversalHandler<'dom> for ModernContainerBuilder<'_, 'dom> {
         self.contiguous_text_runs.push(ModernContainerTextRun {
             info: info.clone(),
             text,
+            display_contents_shared_styles: self.display_contents_shared_styles.clone(),
         })
+    }
+
+    fn enter_display_contents(&mut self, styles: SharedInlineStyles) {
+        self.display_contents_shared_styles.push(styles);
+    }
+
+    fn leave_display_contents(&mut self) {
+        self.display_contents_shared_styles.pop();
     }
 
     /// Or pseudo-element
@@ -207,6 +258,7 @@ impl<'a, 'dom> ModernContainerBuilder<'a, 'dom> {
             contiguous_text_runs: Vec::new(),
             jobs: Vec::new(),
             has_text_runs: false,
+            display_contents_shared_styles: Vec::new(),
         }
     }
 
