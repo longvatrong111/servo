@@ -549,11 +549,6 @@ impl TextRun {
             soft_wrap_policy = SegmentStartSoftWrapPolicy::FollowLinebreaker;
         }
     }
-
-    pub fn is_same_shared_inline_styles(&self, other: &SharedInlineStyles) -> bool {
-        self.inline_styles.style.ptr_eq(&other.style) &&
-            self.inline_styles.selected.ptr_eq(&other.selected)
-    }
 }
 
 /// Whether or not this character should be able to change the font during segmentation.  Certain

@@ -8,7 +8,6 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use servo_arc::Arc as ServoArc;
 use style::selector_parser::PseudoElement;
 
 use crate::PropagatedBoxTreeData;
@@ -61,18 +60,6 @@ impl<'dom> ModernContainerJob<'dom> {
     ) -> Option<ModernItem<'dom>> {
         match self {
             ModernContainerJob::TextRuns(runs) => {
-                fn shared_inline_styles_ptr_eq(
-                    lhs: &SharedInlineStyles,
-                    rhs: &SharedInlineStyles,
-                ) -> bool {
-                    let lhs_style = lhs.style.borrow();
-                    let rhs_style = rhs.style.borrow();
-                    let lhs_selected = lhs.selected.borrow();
-                    let rhs_selected = rhs.selected.borrow();
-                    ServoArc::ptr_eq(&*lhs_style, &*rhs_style) &&
-                        ServoArc::ptr_eq(&*lhs_selected, &*rhs_selected)
-                }
-
                 let mut inline_formatting_context_builder =
                     InlineFormattingContextBuilder::new(builder.info);
                 let mut active_display_contents: Vec<SharedInlineStyles> = Vec::new();
@@ -82,7 +69,7 @@ impl<'dom> ModernContainerJob<'dom> {
                     let common_prefix_len = active_display_contents
                         .iter()
                         .zip(desired.iter())
-                        .take_while(|(lhs, rhs)| shared_inline_styles_ptr_eq(lhs, rhs))
+                        .take_while(|(lhs, rhs)| lhs.shared_inline_styles_ptr_eq(rhs))
                         .count();
 
                     while active_display_contents.len() > common_prefix_len {

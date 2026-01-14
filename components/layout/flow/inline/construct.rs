@@ -336,7 +336,8 @@ impl InlineFormattingContextBuilder {
         if let Some(InlineItem::TextRun(text_run)) = self.inline_items.last() {
             if text_run
                 .borrow()
-                .is_same_shared_inline_styles(&current_inline_styles)
+                .inline_styles
+                .shared_inline_styles_ptr_eq(&current_inline_styles)
             {
                 text_run.borrow_mut().text_range.end = new_range.end;
                 return;
