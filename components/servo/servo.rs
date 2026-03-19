@@ -923,8 +923,8 @@ impl Servo {
         self.0.network_manager.borrow()
     }
 
-    pub fn site_data_manager<'a>(&'a self) -> Ref<'a, SiteDataManager> {
-        self.0.site_data_manager.borrow()
+    pub fn site_data_manager(&self) -> SiteDataManager {
+        self.0.site_data_manager.borrow().clone()
     }
 
     pub(crate) fn paint<'a>(&'a self) -> Ref<'a, Paint> {

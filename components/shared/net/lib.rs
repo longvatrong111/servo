@@ -553,6 +553,44 @@ impl ResourceThreads {
             .send(CoreResourceMsg::DeleteCookies(None, Some(sender)));
         let _ = receiver.recv();
     }
+
+    /// Return all cookies applicable to `url`.
+    ///
+    /// Blocks the calling thread until the networking thread replies.
+    pub fn get_cookies_for_url(&self, url: ServoUrl, source: CookieSource) -> Vec<Cookie<'static>> {
+        let (sender, receiver) = ipc::channel().unwrap();
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::GetCookiesDataForUrl(url, sender, source));
+        receiver
+            .recv()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.0)
+            .collect()
+    }
+
+    /// Store `cookie` for `url`. Fire-and-forget — returns as soon as the
+    /// message is queued; the networking thread processes it asynchronously.
+    pub fn set_cookie(&self, url: ServoUrl, cookie: Cookie<'static>, source: CookieSource) {
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::SetCookieForUrl(url, Serde(cookie), source));
+    }
+
+    /// Delete the cookie named `name` for `url`. Fire-and-forget.
+    pub fn delete_cookie(&self, url: ServoUrl, name: String) {
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::DeleteCookie(url, name));
+    }
+
+    /// Delete all cookies whose domain matches `url`. Fire-and-forget.
+    pub fn delete_cookies_for_url(&self, url: ServoUrl) {
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::DeleteCookies(Some(url), None));
+    }
 }
 
 impl GenericSend<CoreResourceMsg> for ResourceThreads {

@@ -33,6 +33,7 @@ use crate::clipboard_delegate::{ClipboardDelegate, DefaultClipboardDelegate};
 use crate::gamepad_delegate::{DefaultGamepadDelegate, GamepadDelegate};
 use crate::responders::IpcResponder;
 use crate::webview_delegate::{CreateNewWebViewRequest, DefaultWebViewDelegate, WebViewDelegate};
+use crate::site_data_manager::{CookieInfo, SiteDataManager};
 use crate::{
     ColorPicker, ContextMenu, EmbedderControl, InputMethodControl, SelectElement, Servo,
     UserContentManager, WebRenderDebugOption,
@@ -625,6 +626,86 @@ impl WebView {
     /// Get the [`UserContentManager`] associated with this [`WebView`].
     pub fn user_content_manager(&self) -> Option<Rc<UserContentManager>> {
         self.inner().user_content_manager.clone()
+    }
+
+    /// Get the [`SiteDataManager`] for this [`WebView`]'s browsing session.
+    ///
+    /// The `SiteDataManager` is shared across all [`WebView`]s belonging to the
+    /// same [`Servo`] instance. Use it to list sites with stored data, clear
+    /// cookies, localStorage, and sessionStorage on a per-site or global basis.
+    ///
+    /// `SiteDataManager` is cheap to clone — it holds only IPC channel handles.
+    pub fn site_data_manager(&self) -> SiteDataManager {
+        self.inner().servo.site_data_manager()
+    }
+
+    /// Return all cookies applicable to `url` from the public browsing store.
+    ///
+    /// **Blocks** the calling thread until the networking thread replies.
+    pub fn cookies(&self, url: &ServoUrl) -> Vec<CookieInfo> {
+        self.inner().servo.site_data_manager().get_cookies(url)
+    }
+
+    /// Look up cookies for `url` without blocking the calling thread.
+    ///
+    /// The `callback` is invoked on a **background thread** once the networking
+    /// thread replies. Use a channel if you need to bring the result back to the
+    /// embedder thread.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let (tx, rx) = std::sync::mpsc::channel();
+    /// webview.cookies_async(url, move |cookies| { let _ = tx.send(cookies); });
+    /// let cookies = rx.recv().unwrap();
+    /// ```
+    pub fn cookies_async(
+        &self,
+        url: ServoUrl,
+        callback: impl FnOnce(Vec<CookieInfo>) + Send + 'static,
+    ) {
+        self.inner()
+            .servo
+            .site_data_manager()
+            .get_cookies_async(url, callback);
+    }
+
+    /// Store a cookie for `url` in the public browsing store. Fire-and-forget.
+    pub fn set_cookie(&self, url: &ServoUrl, cookie: CookieInfo) {
+        self.inner().servo.site_data_manager().set_cookie(url, cookie);
+    }
+
+    /// Store a cookie for `url` without blocking the calling thread.
+    ///
+    /// The optional `callback` is invoked on a **background thread** once the
+    /// send has completed. Useful for sequencing work after the cookie is queued
+    /// (e.g. triggering a navigation only after the session cookie is set).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let (tx, rx) = std::sync::mpsc::channel();
+    /// webview.set_cookie_async(url, cookie, move || { let _ = tx.send(()); });
+    /// rx.recv().unwrap();
+    /// ```
+    pub fn set_cookie_async(
+        &self,
+        url: ServoUrl,
+        cookie: CookieInfo,
+        callback: impl FnOnce() + Send + 'static,
+    ) {
+        self.inner()
+            .servo
+            .site_data_manager()
+            .set_cookie_async(url, cookie, callback);
+    }
+
+    /// Delete the cookie named `name` for `url`. Fire-and-forget.
+    pub fn delete_cookie(&self, url: &ServoUrl, name: &str) {
+        self.inner()
+            .servo
+            .site_data_manager()
+            .delete_cookie(url, name);
     }
 
     /// Evaluate the specified string of JavaScript code. Once execution is complete or an error
