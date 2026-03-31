@@ -7441,6 +7441,7 @@ dependencies = [
  "servo-embedder-traits",
  "servo-fonts",
  "servo-geometry",
+ "servo-hyper-serde",
  "servo-layout",
  "servo-layout-api",
  "servo-media",

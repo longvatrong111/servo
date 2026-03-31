@@ -98,6 +98,7 @@ media = { workspace = true }
 mozangle = { workspace = true }
 net = { workspace = true }
 net_traits = { workspace = true }
+hyper_serde = { workspace = true }
 paint = { workspace = true }
 paint_api = { workspace = true }
 parking_lot = { workspace = true }

@@ -4,10 +4,12 @@
 
 use bitflags::bitflags;
 use cookie::Cookie;
+use hyper_serde::Serde;
 use log::warn;
 use net_traits::pub_domains::registered_domain_name;
-use net_traits::{CookieSource, ResourceThreads, SiteDescriptor};
+use net_traits::{CookieSource, CoreResourceMsg, ResourceThreads, SiteDescriptor};
 use rustc_hash::FxHashMap;
+use servo_base::generic_channel::{self, GenericReceiver, GenericSend, TryReceiveError};
 use servo_url::ServoUrl;
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageType};
@@ -60,6 +62,13 @@ impl SiteData {
     }
 }
 
+type CookieResponse = Vec<Serde<Cookie<'static>>>;
+
+struct PendingCookieRequest {
+    receiver: GenericReceiver<CookieResponse>,
+    callback: Box<dyn FnOnce(Vec<Cookie<'static>>)>,
+}
+
 /// Provides APIs for inspecting and managing site data.
 ///
 /// `SiteDataManager` exposes information about data that is conceptually
@@ -77,6 +86,7 @@ pub struct SiteDataManager {
     private_resource_threads: ResourceThreads,
     public_storage_threads: StorageThreads,
     private_storage_threads: StorageThreads,
+    pending_cookie_requests: Vec<PendingCookieRequest>,
 }
 
 impl SiteDataManager {
@@ -91,6 +101,7 @@ impl SiteDataManager {
             private_resource_threads,
             public_storage_threads,
             private_storage_threads,
+            pending_cookie_requests: Vec::new(),
         }
     }
 
@@ -223,5 +234,48 @@ impl SiteDataManager {
             cookie,
             CookieSource::HTTP,
         );
+    }
+
+    /// Asynchronously returns the cookies for the domain associated with the given [`Url`].
+    ///
+    /// The cookies are delivered via the provided callback during
+    /// [`Servo::spin_event_loop`](crate::Servo::spin_event_loop).
+    pub fn cookies_for_url_async(
+        &mut self,
+        url: Url,
+        source: CookieSource,
+        callback: impl FnOnce(Vec<Cookie<'static>>) + 'static,
+    ) {
+        let (sender, receiver) = generic_channel::channel().unwrap();
+        let url: ServoUrl = url.into();
+        let _ = self
+            .public_resource_threads
+            .send(CoreResourceMsg::GetCookiesForUrl(url, sender, source));
+        self.pending_cookie_requests.push(PendingCookieRequest {
+            receiver,
+            callback: Box::new(callback),
+        });
+    }
+
+    /// Poll all pending asynchronous cookie requests. Invoke callbacks for any
+    /// that have received a response. Called during the event loop spin.
+    pub(crate) fn poll_pending_cookie_requests(&mut self) {
+        let mut i = 0;
+        while i < self.pending_cookie_requests.len() {
+            match self.pending_cookie_requests[i].receiver.try_recv() {
+                Ok(cookies) => {
+                    let request = self.pending_cookie_requests.swap_remove(i);
+                    let cookies: Vec<Cookie<'static>> =
+                        cookies.into_iter().map(|c| c.into_inner()).collect();
+                    (request.callback)(cookies);
+                },
+                Err(TryReceiveError::Empty) => {
+                    i += 1;
+                },
+                Err(TryReceiveError::ReceiveError(_)) => {
+                    self.pending_cookie_requests.swap_remove(i);
+                },
+            }
+        }
     }
 }
