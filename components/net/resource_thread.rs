@@ -460,6 +460,10 @@ impl ResourceChannelManager {
                     .delete_cookies_for_sites(&sites);
                 let _ = sender.send(());
             },
+            CoreResourceMsg::DeleteSessionCookies(sender) => {
+                http_state.cookie_jar.write().clear_session_cookies();
+                let _ = sender.send(());
+            },
             CoreResourceMsg::DeleteCookies(request, sender) => {
                 http_state
                     .cookie_jar
@@ -647,6 +651,13 @@ impl ResourceChannelManager {
                     })
                     .unwrap_or_default();
                 let _ = sender.send(total);
+            },
+            CoreResourceMsg::SaveCookies(sender) => {
+                if let Some(ref config_dir) = self.config_dir {
+                    let jar = http_state.cookie_jar.read();
+                    servo_base::write_json_to_file(&*jar, config_dir, "cookie_jar.json");
+                }
+                let _ = sender.send(());
             },
             CoreResourceMsg::Exit(sender) => {
                 if let Some(ref config_dir) = self.config_dir {

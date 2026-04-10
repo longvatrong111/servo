@@ -229,6 +229,20 @@ impl SiteDataManager {
         self.private_resource_threads.clear_cookies();
     }
 
+    /// Writes the in-memory cookie state to persistent storage.
+    /// Both public and private cookie jars are saved.
+    pub fn save_cookies(&self) {
+        self.public_resource_threads.save_cookies();
+        self.private_resource_threads.save_cookies();
+    }
+
+    /// Delete all session cookies (cookies that have no expiry or max-age).
+    /// Both public and private browsing session cookies are removed.
+    pub fn clear_session_cookies(&self) {
+        self.public_resource_threads.clear_session_cookies();
+        self.private_resource_threads.clear_session_cookies();
+    }
+
     /// Returns the cookies for the domain associated with the given [`Url`].
     pub fn cookies_for_url(&self, url: Url, source: CookieSource) -> Vec<Cookie<'static>> {
         self.public_resource_threads

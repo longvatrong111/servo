@@ -558,6 +558,20 @@ impl ResourceThreads {
             .collect()
     }
 
+    pub fn save_cookies(&self) {
+        let (sender, receiver) = generic_channel::channel().unwrap();
+        let _ = self.core_thread.send(CoreResourceMsg::SaveCookies(sender));
+        let _ = receiver.recv();
+    }
+
+    pub fn clear_session_cookies(&self) {
+        let (sender, receiver) = generic_channel::channel().unwrap();
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::DeleteSessionCookies(sender));
+        let _ = receiver.recv();
+    }
+
     pub fn set_cookie_for_url(&self, url: ServoUrl, cookie: Cookie<'static>, source: CookieSource) {
         let _ = self.core_thread.send(CoreResourceMsg::SetCookieForUrl(
             url,
@@ -713,6 +727,8 @@ pub enum CoreResourceMsg {
     /// This currently is used by unit tests and WebDriver only.
     /// When url is `None`, this clears cookies across all origins.
     DeleteCookies(Option<ServoUrl>, Option<IpcSender<()>>),
+    /// Delete all session cookies (cookies without an expiry or max-age).
+    DeleteSessionCookies(GenericSender<()>),
     DeleteCookie(ServoUrl, String),
     DeleteCookieAsync(CookieStoreId, ServoUrl, String),
     NewCookieListener(
@@ -738,6 +754,8 @@ pub enum CoreResourceMsg {
     ToFileManager(FileManagerThreadMsg),
     StorePreloadedResponse(PreloadId, Response),
     TotalSizeOfInFlightKeepAliveRecords(PipelineId, GenericSender<u64>),
+    /// Persist the cookie jar to disk.
+    SaveCookies(GenericSender<()>),
     /// Break the load handler loop, send a reply when done cleaning up local resources
     /// and exit
     Exit(GenericOneshotSender<()>),
