@@ -624,6 +624,24 @@ impl ResourceThreads {
                 source,
             ));
     }
+
+    pub fn clear_cookies_async(&self, id: CookieOperationId) {
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::EmbedderClearCookies(id));
+    }
+
+    pub fn save_cookies_async(&self, id: CookieOperationId) {
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::EmbedderSaveCookies(id));
+    }
+
+    pub fn clear_session_cookies_async(&self, id: CookieOperationId) {
+        let _ = self
+            .core_thread
+            .send(CoreResourceMsg::EmbedderClearSessionCookies(id));
+    }
 }
 
 impl GenericSend<CoreResourceMsg> for ResourceThreads {
@@ -710,17 +728,21 @@ pub enum CoreResourceMsg {
         GenericSender<Vec<Serde<Cookie<'static>>>>,
         CookieSource,
     ),
-    /// Retrieve cookies for a URL for embedder. The response is
-    /// sent via [`NetToEmbedderMsg::EmbedderGetCookiesForUrlResponse`].
+    /// Retrieve cookies for a URL for embedder. The response is sent via NetToEmbedderMsg
     EmbedderGetCookiesForUrl(CookieOperationId, ServoUrl, CookieSource),
-    /// Set a cookie for a URL on behalf of the embedder. The response is
-    /// sent via [`NetToEmbedderMsg::EmbedderSetCookieForUrlResponse`].
+    /// Set a cookie for a URL on behalf of the embedder. The response is sent via NetToEmbedderMsg.
     EmbedderSetCookieForUrl(
         CookieOperationId,
         ServoUrl,
         Serde<Cookie<'static>>,
         CookieSource,
     ),
+    /// Clear all cookies on behalf of the embedder. The response is sent via NetToEmbedderMsg.
+    EmbedderClearCookies(CookieOperationId),
+    /// Persist cookies to disk on behalf of the embedder. The response is sent via NetToEmbedderMsg.
+    EmbedderSaveCookies(CookieOperationId),
+    /// Clear session cookies on behalf of the embedder. The response is sent via NetToEmbedderMsg.
+    EmbedderClearSessionCookies(CookieOperationId),
     GetCookieDataForUrlAsync(CookieStoreId, ServoUrl, Option<String>),
     GetAllCookieDataForUrlAsync(CookieStoreId, ServoUrl, Option<String>),
     DeleteCookiesForSites(Vec<String>, GenericSender<()>),

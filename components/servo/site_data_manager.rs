@@ -226,21 +226,18 @@ impl SiteDataManager {
 
     pub fn clear_cookies(&self) {
         self.public_resource_threads.clear_cookies();
-        self.private_resource_threads.clear_cookies();
     }
 
     /// Writes the in-memory cookie state to persistent storage.
-    /// Both public and private cookie jars are saved.
+    /// Only public cookie jars are saved.
     pub fn save_cookies(&self) {
         self.public_resource_threads.save_cookies();
-        self.private_resource_threads.save_cookies();
     }
 
     /// Delete all session cookies (cookies that have no expiry or max-age).
-    /// Both public and private browsing session cookies are removed.
+    /// Only public cookie jars are deleted.
     pub fn clear_session_cookies(&self) {
         self.public_resource_threads.clear_session_cookies();
-        self.private_resource_threads.clear_session_cookies();
     }
 
     /// Returns the cookies for the domain associated with the given [`Url`].
@@ -294,6 +291,36 @@ impl SiteDataManager {
             cookie,
             CookieSource::HTTP,
         );
+    }
+
+    /// Asynchronously clears all cookies.
+    /// Only public cookie jars are deleted.
+    pub fn clear_cookies_async(&self, callback: impl FnOnce() + 'static) {
+        let id = self.next_operation_id();
+        self.pending_cookie_callbacks
+            .borrow_mut()
+            .insert(id, CookieOperationCallback::Done(Box::new(callback)));
+        self.public_resource_threads.clear_cookies_async(id);
+    }
+
+    /// Asynchronously writes the in-memory cookie state to persistent storage.
+    /// Only public cookie jars are saved.
+    pub fn save_cookies_async(&self, callback: impl FnOnce() + 'static) {
+        let id = self.next_operation_id();
+        self.pending_cookie_callbacks
+            .borrow_mut()
+            .insert(id, CookieOperationCallback::Done(Box::new(callback)));
+        self.public_resource_threads.save_cookies_async(id);
+    }
+
+    /// Asynchronously clears all session cookies (cookies without an expiry).
+    /// Only public cookie jars are deleted.
+    pub fn clear_session_cookies_async(&self, callback: impl FnOnce() + 'static) {
+        let id = self.next_operation_id();
+        self.pending_cookie_callbacks
+            .borrow_mut()
+            .insert(id, CookieOperationCallback::Done(Box::new(callback)));
+        self.public_resource_threads.clear_session_cookies_async(id);
     }
 
     /// Handle a cookie operation response from the resource thread.
