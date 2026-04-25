@@ -77,6 +77,10 @@ pub(crate) enum CookieOperationResponse {
 enum CookieOperationCallback {
     Cookies(Box<dyn FnOnce(Vec<Cookie<'static>>)>),
     Done(Box<dyn FnOnce()>),
+    DoneAfterResponses {
+        remaining_responses: u8,
+        callback: Box<dyn FnOnce()>,
+    },
 }
 
 /// Provides APIs for inspecting and managing site data.
@@ -226,6 +230,7 @@ impl SiteDataManager {
 
     pub fn clear_cookies(&self) {
         self.public_resource_threads.clear_cookies();
+        self.private_resource_threads.clear_cookies();
     }
 
     /// Writes the in-memory cookie state to persistent storage.
@@ -235,9 +240,10 @@ impl SiteDataManager {
     }
 
     /// Delete all session cookies (cookies that have no expiry or max-age).
-    /// Only public cookie jars are deleted.
+    /// Both public and private cookie jars are deleted.
     pub fn clear_session_cookies(&self) {
         self.public_resource_threads.clear_session_cookies();
+        self.private_resource_threads.clear_session_cookies();
     }
 
     /// Returns the cookies for the domain associated with the given [`Url`].
@@ -294,13 +300,18 @@ impl SiteDataManager {
     }
 
     /// Asynchronously clears all cookies.
-    /// Only public cookie jars are deleted.
+    /// Both public and private cookie jars are deleted.
     pub fn clear_cookies_async(&self, callback: impl FnOnce() + 'static) {
         let id = self.next_operation_id();
-        self.pending_cookie_callbacks
-            .borrow_mut()
-            .insert(id, CookieOperationCallback::Done(Box::new(callback)));
+        self.pending_cookie_callbacks.borrow_mut().insert(
+            id,
+            CookieOperationCallback::DoneAfterResponses {
+                remaining_responses: 2,
+                callback: Box::new(callback),
+            },
+        );
         self.public_resource_threads.clear_cookies_async(id);
+        self.private_resource_threads.clear_cookies_async(id);
     }
 
     /// Asynchronously writes the in-memory cookie state to persistent storage.
@@ -314,13 +325,19 @@ impl SiteDataManager {
     }
 
     /// Asynchronously clears all session cookies (cookies without an expiry).
-    /// Only public cookie jars are deleted.
+    /// Both public and private cookie jars are deleted.
     pub fn clear_session_cookies_async(&self, callback: impl FnOnce() + 'static) {
         let id = self.next_operation_id();
-        self.pending_cookie_callbacks
-            .borrow_mut()
-            .insert(id, CookieOperationCallback::Done(Box::new(callback)));
+        self.pending_cookie_callbacks.borrow_mut().insert(
+            id,
+            CookieOperationCallback::DoneAfterResponses {
+                remaining_responses: 2,
+                callback: Box::new(callback),
+            },
+        );
         self.public_resource_threads.clear_session_cookies_async(id);
+        self.private_resource_threads
+            .clear_session_cookies_async(id);
     }
 
     /// Handle a cookie operation response from the resource thread.
@@ -335,12 +352,31 @@ impl SiteDataManager {
             warn!("Received cookie response for unknown operation {id:?}");
             return;
         };
-        match (callback, response) {
-            (CookieOperationCallback::Cookies(cb), CookieOperationResponse::Cookies(cookies)) => {
+        match (response, callback) {
+            (CookieOperationResponse::Cookies(cookies), CookieOperationCallback::Cookies(cb)) => {
                 cb(cookies);
             },
-            (CookieOperationCallback::Done(cb), CookieOperationResponse::Done) => {
+            (CookieOperationResponse::Done, CookieOperationCallback::Done(cb)) => {
                 cb();
+            },
+            (
+                CookieOperationResponse::Done,
+                CookieOperationCallback::DoneAfterResponses {
+                    remaining_responses,
+                    callback,
+                },
+            ) => {
+                if remaining_responses > 1 {
+                    self.pending_cookie_callbacks.borrow_mut().insert(
+                        id,
+                        CookieOperationCallback::DoneAfterResponses {
+                            remaining_responses: remaining_responses - 1,
+                            callback,
+                        },
+                    );
+                } else {
+                    callback();
+                }
             },
             _ => {
                 warn!("Cookie response type mismatch for operation {id:?}");
