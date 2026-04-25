@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::IpAddr;
+use std::path::Path;
 use std::time::SystemTime;
 
 use cookie::Cookie;
@@ -40,6 +41,12 @@ impl CookieStorage {
             version: 1,
             cookies_map: HashMap::new(),
             max_per_host: max_cookies,
+        }
+    }
+
+    pub fn save_state(&self, config_dir: Option<&Path>) {
+        if let Some(config_dir) = config_dir {
+            servo_base::write_json_to_file(self, config_dir, "cookie_jar.json");
         }
     }
 

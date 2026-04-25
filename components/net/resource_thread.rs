@@ -600,10 +600,10 @@ impl ResourceChannelManager {
                     ));
             },
             CoreResourceMsg::EmbedderSaveCookies(operation_id) => {
-                if let Some(ref config_dir) = self.config_dir {
-                    let jar = http_state.cookie_jar.read();
-                    servo_base::write_json_to_file(&*jar, config_dir, "cookie_jar.json");
-                }
+                http_state
+                    .cookie_jar
+                    .read()
+                    .save_state(self.config_dir.as_deref());
                 http_state
                     .embedder_proxy
                     .send(NetToEmbedderMsg::EmbedderCookieOperationResponse(
@@ -680,18 +680,17 @@ impl ResourceChannelManager {
                 let _ = sender.send(total);
             },
             CoreResourceMsg::SaveCookies(sender) => {
-                if let Some(ref config_dir) = self.config_dir {
-                    let jar = http_state.cookie_jar.read();
-                    servo_base::write_json_to_file(&*jar, config_dir, "cookie_jar.json");
-                }
+                http_state
+                    .cookie_jar
+                    .read()
+                    .save_state(self.config_dir.as_deref());
                 let _ = sender.send(());
             },
             CoreResourceMsg::Exit(sender) => {
                 if let Some(ref config_dir) = self.config_dir {
                     let auth_cache = http_state.auth_cache.read();
                     servo_base::write_json_to_file(&*auth_cache, config_dir, "auth_cache.json");
-                    let jar = http_state.cookie_jar.read();
-                    servo_base::write_json_to_file(&*jar, config_dir, "cookie_jar.json");
+                    http_state.cookie_jar.read().save_state(Some(config_dir));
                     let hsts = http_state.hsts_list.read();
                     servo_base::write_json_to_file(&*hsts, config_dir, "hsts_list.json");
                 }
