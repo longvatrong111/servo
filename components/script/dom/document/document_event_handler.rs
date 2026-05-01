@@ -936,12 +936,7 @@ impl DocumentEventHandler {
                 // Step 9. If mbutton is the secondary mouse button, then
                 // Maybe show context menu with native, target.
                 if let MouseButton::Right = event.button {
-                    self.maybe_show_context_menu(
-                        node.upcast(),
-                        &hit_test_result,
-                        input_event,
-                        CanGc::from_cx(cx),
-                    );
+                    self.maybe_show_context_menu(cx, node.upcast(), &hit_test_result, input_event);
                 }
             },
             // https://w3c.github.io/pointerevents/#dfn-handle-native-mouse-up
@@ -1068,10 +1063,10 @@ impl DocumentEventHandler {
     /// <https://www.w3.org/TR/pointerevents4/#maybe-show-context-menu>
     fn maybe_show_context_menu(
         &self,
+        cx: &mut js::context::JSContext,
         target: &EventTarget,
         hit_test_result: &HitTestResult,
         input_event: &ConstellationInputEvent,
-        can_gc: CanGc,
     ) {
         // <https://w3c.github.io/pointerevents/#contextmenu>
         let menu_event = PointerEvent::new(
@@ -1105,12 +1100,14 @@ impl DocumentEventHandler {
             true,                     // is_primary
             vec![],                   // coalesced_events
             vec![],                   // predicted_events
-            can_gc,
+            CanGc::from_cx(cx),
         );
         menu_event.upcast::<Event>().set_composed(true);
 
         // Step 3. Let result = dispatch menuevent at target.
-        let result = menu_event.upcast::<Event>().fire(target, can_gc);
+        let result = menu_event
+            .upcast::<Event>()
+            .fire(target, CanGc::from_cx(cx));
 
         // Step 4. If result is true, then show the UA context menu
         if result {
@@ -1200,6 +1197,7 @@ impl DocumentEventHandler {
 
             // Fire pointerenter hierarchically (from topmost ancestor to target)
             self.fire_pointer_event_for_touch(
+                cx,
                 &element,
                 &pointer_touch,
                 pointer_id,
@@ -1207,7 +1205,6 @@ impl DocumentEventHandler {
                 is_primary,
                 input_event,
                 &hit_test_result,
-                CanGc::from_cx(cx),
             );
         }
 
@@ -1248,6 +1245,7 @@ impl DocumentEventHandler {
 
             // Fire pointerleave hierarchically (from target to topmost ancestor)
             self.fire_pointer_event_for_touch(
+                cx,
                 &element,
                 &pointer_touch,
                 pointer_id,
@@ -1255,7 +1253,6 @@ impl DocumentEventHandler {
                 is_primary,
                 input_event,
                 &hit_test_result,
-                CanGc::from_cx(cx),
             );
         }
 
@@ -2290,6 +2287,7 @@ impl DocumentEventHandler {
     #[allow(clippy::too_many_arguments)]
     fn fire_pointer_event_for_touch(
         &self,
+        cx: &mut js::context::JSContext,
         target_element: &Element,
         touch: &Touch,
         pointer_id: i32,
@@ -2297,7 +2295,6 @@ impl DocumentEventHandler {
         is_primary: bool,
         input_event: &ConstellationInputEvent,
         hit_test_result: &HitTestResult,
-        can_gc: CanGc,
     ) {
         // Collect ancestors from target to root
         let mut targets: Vec<DomRoot<Node>> = vec![];
@@ -2321,11 +2318,11 @@ impl DocumentEventHandler {
                 input_event.active_keyboard_modifiers,
                 false,
                 Some(hit_test_result.point_in_node),
-                can_gc,
+                CanGc::from_cx(cx),
             );
             pointer_event
                 .upcast::<Event>()
-                .fire(target.upcast(), can_gc);
+                .fire(target.upcast(), CanGc::from_cx(cx));
         }
     }
 
