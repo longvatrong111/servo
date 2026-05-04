@@ -610,7 +610,7 @@ fn test_clear_cookies() {
         Ok(JSValue::String("foo1=bar1; foo2=bar2; foo3=bar3".into()))
     );
 
-    servo_test.servo().site_data_manager().clear_cookies();
+    servo_test.servo().site_data_manager().clear_cookies(None);
 
     let result = evaluate_javascript(&servo_test, webview.clone(), "document.cookie");
     assert_eq!(result, Ok(JSValue::String("".into())));
@@ -645,7 +645,8 @@ fn test_get_cookie() {
     let cookies = servo_test
         .servo()
         .site_data_manager()
-        .cookies_for_url(url.url().into_url(), CookieSource::NonHTTP);
+        .cookies_for_url(url.url().into_url(), CookieSource::NonHTTP, None)
+        .unwrap();
     assert_eq!(cookies.len(), 1);
     assert_eq!(cookies[0].name(), "foo");
     assert_eq!(cookies[0].value(), "bar");
@@ -684,14 +685,15 @@ fn test_set_cookie() {
     servo_test
         .servo()
         .site_data_manager()
-        .set_cookie_for_url(page_url.clone(), cookie);
+        .set_cookie_for_url(page_url.clone(), cookie, None);
 
     // Verify it is returned by get_cookies_for_url.
     // Don't need sync call because set and get messages are processed in order.
     let cookies = servo_test
         .servo()
         .site_data_manager()
-        .cookies_for_url(page_url.clone(), CookieSource::HTTP);
+        .cookies_for_url(page_url.clone(), CookieSource::HTTP, None)
+        .unwrap();
     assert_eq!(cookies.len(), 1);
     assert_eq!(cookies[0].name(), "foo");
     assert_eq!(cookies[0].value(), "bar");
@@ -742,17 +744,14 @@ fn test_get_cookie_async() {
     let continued_after_call = Rc::new(Cell::new(false));
     let continued_clone = continued_after_call.clone();
     let result_clone = result.clone();
-    servo_test
-        .servo()
-        .site_data_manager()
-        .cookies_for_url_async(
-            url.as_url().clone(),
-            CookieSource::NonHTTP,
-            move |cookies| {
-                assert!(continued_clone.get(), "callback fired synchronously");
-                *result_clone.borrow_mut() = Some(cookies);
-            },
-        );
+    servo_test.servo().site_data_manager().cookies_for_url(
+        url.as_url().clone(),
+        CookieSource::NonHTTP,
+        Some(Box::new(move |cookies| {
+            assert!(continued_clone.get(), "callback fired synchronously");
+            *result_clone.borrow_mut() = Some(cookies);
+        })),
+    );
     assert!(result.borrow().is_none(), "result available before spin");
     continued_after_call.set(true);
 
