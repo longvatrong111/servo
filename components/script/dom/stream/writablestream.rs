@@ -46,7 +46,7 @@ use crate::dom::stream::writablestreamdefaultcontroller::{
     UnderlyingSinkType, WritableStreamDefaultController,
 };
 use crate::dom::stream::writablestreamdefaultwriter::WritableStreamDefaultWriter;
-use crate::realms::{InRealm, enter_auto_realm, enter_realm};
+use crate::realms::{InRealm, enter_auto_realm};
 use crate::script_runtime::{CanGc, JSContext as SafeJSContext};
 
 impl js::gc::Rootable for AbortAlgorithmFulfillmentHandler {}
@@ -335,9 +335,10 @@ impl WritableStream {
                 rejection_handler.take().map(|h| Box::new(h) as Box<_>),
                 CanGc::from_cx(cx),
             );
-            let realm = enter_realm(global);
-            let comp = InRealm::Entered(&realm);
-            promise.append_native_handler(&handler, comp, CanGc::from_cx(cx));
+
+            let mut realm = enter_auto_realm(cx, global);
+            let cx = &mut realm.current_realm();
+            promise.append_native_handler(cx, &handler);
         }
     }
 
