@@ -389,12 +389,11 @@ impl Event {
 
             // Step 6.5. If isActivationEvent is true and target has activation behavior,
             // then set activationTarget to target.
-            if is_activation_event {
-                if let Some(element) = target.downcast::<Element>() {
-                    if element.as_maybe_activatable().is_some() {
-                        activation_target = Some(DomRoot::from_ref(element));
-                    }
-                }
+            if is_activation_event &&
+                let Some(element) = target.downcast::<Element>() &&
+                element.as_maybe_activatable().is_some()
+            {
+                activation_target = Some(DomRoot::from_ref(element));
             }
 
             // Step 6.6. Let slottable be target, if target is a slottable and is assigned, and null otherwise.
@@ -472,12 +471,13 @@ impl Event {
                 if parent.is::<Window>() || root_is_shadow_inclusive_ancestor {
                     // Step 6.9.6.1. If isActivationEvent is true, event’s bubbles attribute is true, activationTarget
                     // is null, and parent has activation behavior, then set activationTarget to parent.
-                    if is_activation_event && activation_target.is_none() && self.bubbles.get() {
-                        if let Some(element) = parent.downcast::<Element>() {
-                            if element.as_maybe_activatable().is_some() {
-                                activation_target = Some(DomRoot::from_ref(element));
-                            }
-                        }
+                    if is_activation_event &&
+                        activation_target.is_none() &&
+                        self.bubbles.get() &&
+                        let Some(element) = parent.downcast::<Element>() &&
+                        element.as_maybe_activatable().is_some()
+                    {
+                        activation_target = Some(DomRoot::from_ref(element));
                     }
 
                     // Step 6.9.6.2. Append to an event path with event, parent, null, relatedTarget, touchTargets,
@@ -502,12 +502,12 @@ impl Event {
 
                     // Step 6.9.8.2. If isActivationEvent is true, activationTarget is null, and target has
                     // activation behavior, then set activationTarget to target.
-                    if is_activation_event && activation_target.is_none() {
-                        if let Some(element) = parent.downcast::<Element>() {
-                            if element.as_maybe_activatable().is_some() {
-                                activation_target = Some(DomRoot::from_ref(element));
-                            }
-                        }
+                    if is_activation_event &&
+                        activation_target.is_none() &&
+                        let Some(element) = parent.downcast::<Element>() &&
+                        element.as_maybe_activatable().is_some()
+                    {
+                        activation_target = Some(DomRoot::from_ref(element));
                     }
 
                     // Step 6.9.8.3. Append to an event path with event, parent, target, relatedTarget,
@@ -652,11 +652,11 @@ impl Event {
                     let vtable = vtable_for(node);
                     vtable.handle_event(cx, self);
                 }
-            } else if let Some(target) = self.GetTarget() {
-                if let Some(node) = target.downcast::<Node>() {
-                    let vtable = vtable_for(node);
-                    vtable.handle_event(cx, self);
-                }
+            } else if let Some(target) = self.GetTarget() &&
+                let Some(node) = target.downcast::<Node>()
+            {
+                let vtable = vtable_for(node);
+                vtable.handle_event(cx, self);
             }
         }
 
@@ -1440,11 +1440,10 @@ fn inner_invoke(
         let marker = TimelineMarker::start("DOMEvent".to_owned());
         if compiled_listener
             .call_or_handle_event(cx, &event_target, event, ExceptionHandling::Report)
-            .is_err()
+            .is_err() &&
+            let Some(flag) = legacy_output_did_listeners_throw
         {
-            if let Some(flag) = legacy_output_did_listeners_throw {
-                flag.set(true);
-            }
+            flag.set(true);
         }
         if let Some(window) = timeline_window {
             window.emit_timeline_marker(marker.end());
