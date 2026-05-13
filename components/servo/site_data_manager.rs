@@ -279,31 +279,24 @@ impl SiteDataManager {
     }
 
     /// Returns the cookies for the domain associated with the given [`Url`].
-    ///
-    /// An optional callback is provided for async operation.
-    /// For async version, this method always returns `None`
-    /// and the cookies are delivered via the callback when ready.
-    pub fn cookies_for_url(
+    pub fn cookies_for_url(&self, url: Url, source: CookieSource) -> Vec<Cookie<'static>> {
+        self.public_resource_threads
+            .cookies_for_url(url.into(), source)
+    }
+
+    /// Asynchronously returns the cookies for the domain associated with the given [`Url`].
+    pub fn cookies_for_url_async(
         &self,
         url: Url,
         source: CookieSource,
-        callback: Option<Box<dyn FnOnce(Vec<Cookie<'static>>)>>,
-    ) -> Option<Vec<Cookie<'static>>> {
-        match callback {
-            None => Some(
-                self.public_resource_threads
-                    .cookies_for_url(url.into(), source),
-            ),
-            Some(callback) => {
-                let id = self.next_operation_id();
-                self.pending_cookie_callbacks
-                    .borrow_mut()
-                    .insert(id, CookieOperationCallback::Cookies(callback));
-                self.public_resource_threads
-                    .cookies_for_url_async(id, url.into(), source);
-                None
-            },
-        }
+        callback: impl FnOnce(Vec<Cookie<'static>>) + 'static,
+    ) {
+        let id = self.next_operation_id();
+        self.pending_cookie_callbacks
+            .borrow_mut()
+            .insert(id, CookieOperationCallback::Cookies(Box::new(callback)));
+        self.public_resource_threads
+            .cookies_for_url_async(id, url.into(), source);
     }
 
     /// Sets a cookie for the domain associated with the given [`Url`].
