@@ -84,6 +84,7 @@ impl<'a, Handler: PaintTraversalHandler> PaintTraversal<'a, Handler> {
             self.traverse_stacking_context_inner(&state, root_fragment);
         }
 
+
         // > Step 9: For each of root’s positioned descendants with z-index: auto or
         // > z-index: 0, in tree order:
         // >   ↪ descendant has z-index: auto

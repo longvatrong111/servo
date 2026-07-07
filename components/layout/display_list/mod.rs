@@ -48,9 +48,9 @@ use webrender_api::units::{
 };
 use webrender_api::{
     self as wr, BorderDetails, BorderRadius, BorderSide, BoxShadowClipMode, BuiltDisplayList,
-    ClipChainId, ClipMode, ColorF, CommonItemProperties, ComplexClipRegion, GlyphInstance,
-    NinePatchBorder, NinePatchBorderSource, NormalBorder, PrimitiveFlags, PropertyBinding,
-    PropertyBindingKey, RasterSpace, SpatialId, StackingContextFlags, units,
+    ClipChainId, ClipMode, ColorF, CommonItemProperties, ComplexClipRegion,
+    GlyphInstance, NinePatchBorder, NinePatchBorderSource, NormalBorder, PrimitiveFlags,
+    PropertyBinding, PropertyBindingKey, RasterSpace, SpatialId, StackingContextFlags, units,
 };
 use wr::units::LayoutVector2D;
 
@@ -1593,6 +1593,130 @@ impl<'a> BuilderForBoxFragment<'a> {
         self.build_background_image(builder, state, painter);
     }
 
+    /// Paint background with `background-clip: text`. Walks descendant
+    /// [`TextFragment`]s to compute their bounding box, then paints the
+    /// background through a WR clip restricted to that bbox.
+    fn build_background_with_text_clip(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        state: &TraversalState,
+        painter: &BackgroundPainter,
+    ) {
+        let content_offset = PhysicalPoint::new(
+            self.fragment.padding.left,
+            self.fragment.padding.top,
+        );
+
+        // Collect the bounding rectangle of all descendant text fragments.
+        let mut text_rects: Vec<LayoutRect> = Vec::new();
+        Self::collect_text_rects(&self.fragment.children, content_offset, &mut text_rects);
+        if text_rects.is_empty() {
+            return;
+        }
+
+        let bbox = text_rects.into_iter().reduce(|a, b| a.union(&b)).unwrap();
+
+        // Build a WR clip from the text bounding box.
+        let spatial_id = builder.spatial_id(state.spatial_id);
+        let clip_id = builder.wr().define_clip_rounded_rect(
+            spatial_id,
+            ComplexClipRegion::new(bbox, BorderRadius::zero(), ClipMode::Clip),
+        );
+        let clip_chain_id = builder.wr().define_clip_chain(None, [clip_id]);
+
+        // Paint background color with text-bbox clip.
+        let b = painter.style.get_background();
+        let bg_color = painter.style.resolve_color(&b.background_color);
+        if bg_color.alpha > 0.0 {
+            let layer_index = b.background_image.0.len() - 1;
+            let painting_area = painter.painting_area(self, builder, layer_index);
+            let mut common =
+                painter.common_properties(self, builder, state, layer_index, painting_area);
+            common.clip_chain_id = clip_chain_id;
+            builder.wr().push_rect(&common, common.clip_rect, rgba(bg_color));
+        }
+
+        // Paint background images with text-bbox clip.
+        let style = painter.style;
+        let node = self.fragment.base.tag.map(|tag| tag.node);
+        for (index, image) in b.background_image.0.iter().enumerate().rev() {
+            let Ok(resolved) = builder.image_resolver.resolve_image(node, image) else {
+                continue;
+            };
+            match resolved {
+                ResolvedImage::Gradient(_) | ResolvedImage::Color(_) => {
+                    let intrinsic = NaturalSizes::empty();
+                    let Some(layer) =
+                        &background::layout_layer(self, painter, builder, state, index, intrinsic)
+                    else {
+                        continue;
+                    };
+                    let mut common = layer.common;
+                    common.clip_chain_id = clip_chain_id;
+                    match resolved {
+                        ResolvedImage::Gradient(gradient) => {
+                            match gradient::build(style, gradient, layer.tile_size, builder) {
+                                WebRenderGradient::Linear(g) => builder.wr().push_gradient(
+                                    &common, layer.bounds, g, layer.tile_size, layer.tile_spacing,
+                                ),
+                                WebRenderGradient::Radial(g) => builder.wr().push_radial_gradient(
+                                    &common, layer.bounds, g, layer.tile_size, layer.tile_spacing,
+                                ),
+                                WebRenderGradient::Conic(g) => builder.wr().push_conic_gradient(
+                                    &common, layer.bounds, g, layer.tile_size, layer.tile_spacing,
+                                ),
+                            }
+                        },
+                        ResolvedImage::Color(color) => {
+                            builder.wr().push_rect(&common, layer.bounds, rgba(style.resolve_color(color)));
+                        },
+                        _ => {},
+                    }
+                },
+                _ => {},
+            }
+        }
+    }
+
+    /// Walk fragment children to collect bounding rectangles of text fragments.
+    fn collect_text_rects(
+        children: &[Fragment],
+        offset: PhysicalPoint<Au>,
+        out: &mut Vec<LayoutRect>,
+    ) {
+        for child in children {
+            match child {
+                Fragment::Text(text) => {
+                    let rect = text.base.rect().translate(offset.to_vector()).to_webrender();
+                    out.push(rect.inflate(0.0, 4.0));
+                },
+                Fragment::Box(b) | Fragment::Float(b) => {
+                    let child_origin = offset + b.base.rect().origin.to_vector();
+                    Self::collect_text_rects(&b.children, child_origin, out);
+                },
+                Fragment::Positioning(pos) => {
+                    let child_origin = offset + pos.base.rect().origin.to_vector();
+                    Self::collect_text_rects(&pos.children, child_origin, out);
+                },
+                Fragment::LayoutRoot(lr) => {
+                    let inner = lr.inner();
+                    match &*inner {
+                        Fragment::Text(text) => {
+                            let rect = text.base.rect().translate(offset.to_vector()).to_webrender();
+                            out.push(rect.inflate(0.0, 4.0));
+                        },
+                        Fragment::Box(b) => {
+                            let child_origin = offset + b.base.rect().origin.to_vector();
+                            Self::collect_text_rects(&b.children, child_origin, out);
+                        },
+                        _ => {},
+                    }
+                },
+                _ => {},
+            }
+        }
+    }
+
     fn build_background(&mut self, builder: &mut DisplayListBuilder, state: &TraversalState) {
         let flags = self.fragment.base.flags;
 
@@ -1637,6 +1761,20 @@ impl<'a> BuilderForBoxFragment<'a> {
             painting_area_override: None,
             positioning_area_override: None,
         };
+
+        // If any background layer uses `background-clip: text`, build a clip
+        // from the bounding rectangle of descendant text, then paint through it.
+        let b = painter.style.get_background();
+        let has_text_clip = b
+            .background_clip
+            .0
+            .iter()
+            .any(|clip| *clip == style::computed_values::background_clip::single_value::T::Text);
+        if has_text_clip {
+            self.build_background_with_text_clip(builder, state, &painter);
+            return;
+        }
+
         self.build_background_for_painter(builder, state, &painter);
     }
 

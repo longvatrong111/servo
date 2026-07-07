@@ -75,6 +75,11 @@ impl<'a> BackgroundPainter<'a> {
             Clip::ContentBox => *fragment_builder.content_rect(),
             Clip::PaddingBox => *fragment_builder.padding_rect(),
             Clip::BorderBox => fragment_builder.border_rect,
+            // `background-clip: text` means the background is painted within the
+            // border box, then masked to the text glyph shapes.
+            // TODO: Glyph-based masking is not yet implemented — this currently
+            // paints the full background in the border box.
+            Clip::Text => fragment_builder.border_rect,
         }
     }
 
@@ -107,6 +112,11 @@ impl<'a> BackgroundPainter<'a> {
             Clip::BorderBox => {
                 fragment_builder.border_edge_clip(builder, state, force_clip_creation)
             },
+            // `background-clip: text`: background is not clipped to a box edge.
+            // The text glyphs serve as the alpha mask.
+            // TODO: When glyph-based masking is implemented, this should create
+            // a text-shaped clip chain instead of returning None.
+            Clip::Text => None,
         }
     }
 
