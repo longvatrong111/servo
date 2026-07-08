@@ -8,7 +8,7 @@ use std::sync::Arc;
 use app_units::Au;
 use atomic_refcell::AtomicRef;
 use euclid::{Point2D, Rect, Size2D};
-use fonts::{FontMetrics, ShapedTextSlice};
+use fonts::{FontMetrics, FontRef, ShapedTextSlice};
 use layout_api::BoxAreaType;
 use malloc_size_of_derive::MallocSizeOf;
 use servo_arc::Arc as ServoArc;
@@ -99,6 +99,9 @@ pub(crate) struct TextFragment {
     #[conditional_malloc_size_of]
     pub font_metrics: Arc<FontMetrics>,
     pub font_key: FontInstanceKey,
+    /// A reference to the font used to shape these glyphs, used to rasterize glyph
+    /// masks for effects such as `background-clip: text`.
+    pub font: FontRef,
     #[conditional_malloc_size_of]
     pub glyphs: Vec<Arc<ShapedTextSlice>>,
     /// Extra space to add for each justification opportunity.

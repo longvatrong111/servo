@@ -409,6 +409,64 @@ impl Font {
     pub(crate) fn variations(&self) -> &[FontVariation] {
         self.handle.variations()
     }
+
+    /// Rasterize a single glyph to an 8-bit alpha coverage bitmap at the given
+    /// device-pixel size. Returns `None` for empty glyphs (e.g. whitespace), or
+    /// if the font data cannot be loaded. This is used to build glyph masks for
+    /// effects such as `background-clip: text`.
+    pub fn rasterize_glyph(&self, glyph_id: u32, size: f32) -> Option<RasterizedGlyph> {
+        use ab_glyph::Font as _;
+
+        let data_and_index = self.font_data_and_index().ok()?;
+        let font = ab_glyph::FontRef::try_from_slice_and_index(
+            data_and_index.data.as_ref(),
+            data_and_index.index,
+        )
+        .ok()?;
+
+        let glyph = ab_glyph::GlyphId(glyph_id as u16).with_scale(size);
+        let outlined = font.outline_glyph(glyph)?;
+        let bounds = outlined.px_bounds();
+        let width = bounds.width().ceil() as u32;
+        let height = bounds.height().ceil() as u32;
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        let mut coverage = vec![0u8; (width * height) as usize];
+        outlined.draw(|x, y, c| {
+            let index = (y * width + x) as usize;
+            if index < coverage.len() {
+                coverage[index] = (c * 255.0 + 0.5) as u8;
+            }
+        });
+
+        Some(RasterizedGlyph {
+            left: bounds.min.x.floor() as i32,
+            top: bounds.min.y.floor() as i32,
+            width,
+            height,
+            coverage,
+        })
+    }
+}
+
+/// A single glyph rasterized to an 8-bit alpha coverage bitmap. The origin of
+/// the bitmap is expressed relative to the glyph's pen position via [`Self::left`]
+/// and [`Self::top`].
+pub struct RasterizedGlyph {
+    /// Horizontal offset in device pixels from the glyph's pen origin to the
+    /// left edge of the coverage bitmap.
+    pub left: i32,
+    /// Vertical offset in device pixels from the glyph's baseline to the top
+    /// edge of the coverage bitmap (positive is downward).
+    pub top: i32,
+    /// Width of the coverage bitmap in device pixels.
+    pub width: u32,
+    /// Height of the coverage bitmap in device pixels.
+    pub height: u32,
+    /// Row-major 8-bit alpha coverage, `width * height` bytes.
+    pub coverage: Vec<u8>,
 }
 
 bitflags! {

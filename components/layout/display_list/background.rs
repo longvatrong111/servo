@@ -75,6 +75,7 @@ impl<'a> BackgroundPainter<'a> {
             Clip::ContentBox => *fragment_builder.content_rect(),
             Clip::PaddingBox => *fragment_builder.padding_rect(),
             Clip::BorderBox | Clip::BorderArea => fragment_builder.border_rect,
+            Clip::Text => fragment_builder.border_rect,
         }
     }
 
@@ -108,6 +109,12 @@ impl<'a> BackgroundPainter<'a> {
                 fragment_builder.border_edge_clip(builder, state, force_clip_creation)
             },
             Clip::BorderArea => unreachable!("Should be disabled behind a pref"),
+            // `background-clip: text` masks the background to the glyphs of the box's
+            // descendant text. WebRender image-mask clips cannot be applied to primitives
+            // directly (only to pictures), so the mask is instead applied to a stacking
+            // context wrapping the whole background in `build_background`. Here we only
+            // clip the individual primitives to the border box.
+            Clip::Text => fragment_builder.border_edge_clip(builder, state, force_clip_creation),
         }
     }
 

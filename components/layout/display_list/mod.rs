@@ -9,10 +9,12 @@ use app_units::{AU_PER_PX, Au};
 use clip::Clip;
 pub(crate) use clip::ClipId;
 use euclid::{Box2D, Point2D, Rect, Scale, SideOffsets2D, Size2D, UnknownUnit, Vector2D};
-use fonts::ShapedTextSlice;
+use fonts::{RasterizedGlyph, ShapedTextSlice};
 use gradient::WebRenderGradient;
 use layout_api::ReflowStatistics;
 use net_traits::image_cache::Image as CachedImage;
+use paint_api::CrossProcessPaintApi;
+use paint_api::SerializableImageData;
 use paint_api::display_list::{PaintDisplayListInfo, SpatialTreeNodeInfo};
 use servo_arc::Arc as ServoArc;
 use servo_base::id::{PipelineId, ScrollTreeNodeId};
@@ -23,6 +25,7 @@ use servo_url::ServoUrl;
 use style::Zero;
 use style::color::{AbsoluteColor, ColorSpace};
 use style::computed_values::background_blend_mode::SingleComputedValue as BackgroundBlendMode;
+use style::computed_values::background_clip::single_value::T as BackgroundClip;
 use style::computed_values::border_image_outset::T as BorderImageOutset;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
@@ -49,10 +52,17 @@ use webrender_api::units::{
 };
 use webrender_api::{
     self as wr, BorderDetails, BorderRadius, BorderSide, BoxShadowClipMode, BuiltDisplayList,
+<<<<<<< HEAD
     ClipChainId, ClipMode, ColorF, CommonItemProperties, ComplexClipRegion, GlyphInstance,
     MixBlendMode, NinePatchBorder, NinePatchBorderSource, NormalBorder, PrimitiveFlags,
     PropertyBinding, PropertyBindingKey, RasterSpace, SpatialId, StackingContextFlags,
     TransformStyle, units,
+=======
+    ClipChainId, ClipMode, ColorF, CommonItemProperties, ComplexClipRegion, FillRule, GlyphInstance,
+    ImageDescriptor, ImageDescriptorFlags, ImageFormat, ImageMask, NinePatchBorder,
+    NinePatchBorderSource, NormalBorder, PrimitiveFlags, PropertyBinding, PropertyBindingKey,
+    RasterSpace, SpatialId, StackingContextFlags, units,
+>>>>>>> b550d6d4706 (draft: implement background-clip: text)
 };
 use wr::units::LayoutVector2D;
 
@@ -121,6 +131,13 @@ pub(crate) struct DisplayListBuilder<'a> {
     /// An [`ImageResolver`] to use during display list construction.
     image_resolver: Arc<ImageResolver>,
 
+    /// The cross-process paint API, used to register layout-generated images such as
+    /// `background-clip: text` glyph masks.
+    paint_api: &'a CrossProcessPaintApi,
+
+    /// The [`WebViewId`] of the document being laid out, needed to generate image keys.
+    webview_id: WebViewId,
+
     /// The device pixel ratio used for this `Document`'s display list.
     device_pixel_ratio: Scale<f32, StyloCSSPixel, StyloDevicePixel>,
 
@@ -175,6 +192,8 @@ impl DisplayListBuilder<'_> {
         stacking_context_tree: &mut StackingContextTree,
         fragment_tree: &FragmentTree,
         image_resolver: Arc<ImageResolver>,
+        paint_api: &CrossProcessPaintApi,
+        webview_id: WebViewId,
         device_pixel_ratio: Scale<f32, StyloCSSPixel, StyloDevicePixel>,
         highlighted_dom_node: Option<OpaqueNode>,
         debug: &DiagnosticsLogging,
@@ -206,6 +225,8 @@ impl DisplayListBuilder<'_> {
             paint_body_background: true,
             clip_map: Default::default(),
             image_resolver,
+            paint_api,
+            webview_id,
             device_pixel_ratio,
             paint_timing_handler,
             reflow_statistics,
@@ -1521,6 +1542,89 @@ impl<'a> BuilderForBoxFragment<'a> {
         maybe_clip
     }
 
+    /// Build an image-mask clip from the glyphs of this box's descendant text, used to
+    /// implement `background-clip: text`. The mask is a single-channel (`R8`) coverage
+    /// image the size of the border box (in device pixels) into which every descendant
+    /// glyph is rasterized. Returns `None` if there is no inked text or if the mask image
+    /// could not be created, in which case the caller should fall back to a rectangular clip.
+    fn text_mask_clip(
+        &self,
+        builder: &mut DisplayListBuilder,
+        state: &TraversalState,
+    ) -> Option<ClipChainId> {
+        let device_scale = builder.device_pixel_ratio.get();
+        let border_rect = self.border_rect;
+        let mask_width = (border_rect.width() * device_scale).ceil() as i32;
+        let mask_height = (border_rect.height() * device_scale).ceil() as i32;
+
+        // Guard against degenerate or excessively large masks.
+        const MAX_MASK_DIMENSION: i32 = 4096;
+        if mask_width <= 0 ||
+            mask_height <= 0 ||
+            mask_width > MAX_MASK_DIMENSION ||
+            mask_height > MAX_MASK_DIMENSION
+        {
+            return None;
+        }
+
+        let mut mask = vec![0u8; (mask_width * mask_height) as usize];
+
+        // Children of this box are positioned relative to its content box. Express that
+        // origin relative to the border box, which is the origin of the mask.
+        let content_offset = self.content_rect().min - border_rect.min;
+        let mut any_glyphs = false;
+        for child in self.fragment.children.iter() {
+            composite_text_glyphs_into_mask(
+                child,
+                content_offset,
+                device_scale,
+                mask_width,
+                mask_height,
+                &mut mask,
+                &mut any_glyphs,
+            );
+        }
+
+        if !any_glyphs {
+            return None;
+        }
+
+        // Register the coverage buffer as a single-channel image with the paint thread.
+        let image_key = builder
+            .paint_api
+            .generate_image_key_blocking(builder.webview_id)?;
+        let descriptor = ImageDescriptor::new(
+            mask_width,
+            mask_height,
+            ImageFormat::R8,
+            ImageDescriptorFlags::empty(),
+        );
+        builder.paint_api.add_image(
+            image_key,
+            descriptor,
+            SerializableImageData::Raw(GenericSharedMemory::from_bytes(&mask)),
+            false,
+        );
+
+        let image_mask = ImageMask {
+            image: image_key,
+            rect: border_rect,
+        };
+        let spatial_id = builder.spatial_id(state.spatial_id);
+        let clip_id =
+            builder
+                .wr()
+                .define_clip_image_mask(spatial_id, image_mask, &[], FillRule::Nonzero);
+
+        // WebRender uses `None` (not `ClipChainId::INVALID`) to represent "no parent clip
+        // chain" when defining a clip chain.
+        let parent_clip_chain_id = match builder.clip_chain_id(state.clip_id) {
+            ClipChainId::INVALID => None,
+            parent => Some(parent),
+        };
+        Some(builder.wr().define_clip_chain(parent_clip_chain_id, [clip_id]))
+    }
+
     fn padding_edge_clip(
         &self,
         builder: &mut DisplayListBuilder,
@@ -1708,7 +1812,43 @@ impl<'a> BuilderForBoxFragment<'a> {
             painting_area_override: None,
             positioning_area_override: None,
         };
-        self.build_background_for_painter(builder, state, &painter);
+
+        // `background-clip: text` clips the background to the union of the glyphs of the box's
+        // descendant text. This is implemented with a WebRender image-mask clip, which can only
+        // be applied to a picture (stacking context), not to primitives directly. So when any
+        // background layer uses `background-clip: text`, wrap the whole background in a stacking
+        // context carrying the glyph mask; the individual primitives are only clipped to the
+        // border box (see `BackgroundPainter::clip`).
+        let text_mask_clip = self
+            .fragment
+            .style()
+            .get_background()
+            .background_clip
+            .0
+            .iter()
+            .any(|clip| matches!(clip, BackgroundClip::Text))
+            .then(|| self.text_mask_clip(builder, state))
+            .flatten();
+
+        if let Some(mask_clip) = text_mask_clip {
+            let spatial_id = builder.spatial_id(state.spatial_id);
+            builder.wr().push_stacking_context(
+                spatial_id,
+                PrimitiveFlags::empty(),
+                Some(mask_clip),
+                webrender_api::TransformStyle::Flat,
+                webrender_api::MixBlendMode::Normal,
+                &[],
+                &[],
+                RasterSpace::Screen,
+                StackingContextFlags::empty(),
+                None,
+            );
+            self.build_background_for_painter(builder, state, &painter);
+            builder.wr().pop_stacking_context();
+        } else {
+            self.build_background_for_painter(builder, state, &painter);
+        }
     }
 
     fn build_background_image(
@@ -2345,6 +2485,133 @@ fn glyphs(
         }
     }
     (glyphs, largest_advance)
+}
+
+/// Recursively rasterize the glyphs of `fragment` and its descendants into `mask`, an `R8`
+/// coverage buffer used to implement `background-clip: text`. `offset` is the position, in
+/// CSS pixels, of `fragment`'s containing block relative to the mask's origin (the border
+/// box origin of the clipped element).
+fn composite_text_glyphs_into_mask(
+    fragment: &Fragment,
+    offset: LayoutVector2D,
+    device_scale: f32,
+    mask_width: i32,
+    mask_height: i32,
+    mask: &mut [u8],
+    any_glyphs: &mut bool,
+) {
+    let this_offset = {
+        let Some(base) = fragment.base() else {
+            return;
+        };
+        let fragment_origin = base.rect().origin;
+        offset + LayoutVector2D::new(fragment_origin.x.to_f32_px(), fragment_origin.y.to_f32_px())
+    };
+
+    if let Fragment::Text(text_fragment) = fragment {
+        composite_text_fragment_into_mask(
+            text_fragment,
+            this_offset,
+            device_scale,
+            mask_width,
+            mask_height,
+            mask,
+            any_glyphs,
+        );
+        return;
+    }
+
+    if let Some(children) = fragment.children() {
+        for child in children.iter() {
+            composite_text_glyphs_into_mask(
+                child,
+                this_offset,
+                device_scale,
+                mask_width,
+                mask_height,
+                mask,
+                any_glyphs,
+            );
+        }
+    }
+}
+
+/// Rasterize the glyphs of a single [`TextFragment`] into the coverage `mask`. `content_offset`
+/// is the position, in CSS pixels, of the text fragment's content origin relative to the mask's
+/// origin.
+fn composite_text_fragment_into_mask(
+    text_fragment: &TextFragment,
+    content_offset: LayoutVector2D,
+    device_scale: f32,
+    mask_width: i32,
+    mask_height: i32,
+    mask: &mut [u8],
+    any_glyphs: &mut bool,
+) {
+    let font = &text_fragment.font;
+    let device_font_size = font.descriptor.pt_size.to_f32_px() * device_scale;
+    if device_font_size <= 0.0 {
+        return;
+    }
+
+    let mut pen_x = Au::from_f32_px(content_offset.x);
+    let baseline_y = Au::from_f32_px(content_offset.y) + text_fragment.font_metrics.ascent;
+    let justification_adjustment = text_fragment.justification_adjustment;
+
+    for slice in text_fragment.glyphs.iter() {
+        for glyph in slice.glyphs() {
+            let glyph_offset = glyph.offset().unwrap_or(Point2D::zero());
+            let pen_css_x = (pen_x + glyph_offset.x).to_f32_px();
+            let pen_css_y = (baseline_y + glyph_offset.y).to_f32_px();
+
+            if let Some(rasterized) = font.rasterize_glyph(glyph.id(), device_font_size) {
+                blit_glyph_into_mask(
+                    &rasterized,
+                    pen_css_x * device_scale,
+                    pen_css_y * device_scale,
+                    mask_width,
+                    mask_height,
+                    mask,
+                );
+                *any_glyphs = true;
+            }
+
+            if glyph.char_is_word_separator() {
+                pen_x += justification_adjustment;
+            }
+            pen_x += glyph.advance();
+        }
+    }
+}
+
+/// Composite a single rasterized glyph into the coverage `mask` at the given device-pixel pen
+/// position, taking the maximum coverage where glyphs overlap.
+fn blit_glyph_into_mask(
+    glyph: &RasterizedGlyph,
+    device_pen_x: f32,
+    device_pen_y: f32,
+    mask_width: i32,
+    mask_height: i32,
+    mask: &mut [u8],
+) {
+    let destination_x0 = device_pen_x.round() as i32 + glyph.left;
+    let destination_y0 = device_pen_y.round() as i32 + glyph.top;
+    let glyph_width = glyph.width as i32;
+    for glyph_y in 0..glyph.height as i32 {
+        let mask_y = destination_y0 + glyph_y;
+        if mask_y < 0 || mask_y >= mask_height {
+            continue;
+        }
+        for glyph_x in 0..glyph_width {
+            let mask_x = destination_x0 + glyph_x;
+            if mask_x < 0 || mask_x >= mask_width {
+                continue;
+            }
+            let coverage = glyph.coverage[(glyph_y * glyph_width + glyph_x) as usize];
+            let destination = &mut mask[(mask_y * mask_width + mask_x) as usize];
+            *destination = (*destination).max(coverage);
+        }
+    }
 }
 
 /// Given a set of corner radii for a rectangle, this function returns the corresponding radii
