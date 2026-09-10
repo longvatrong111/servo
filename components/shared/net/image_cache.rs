@@ -10,6 +10,8 @@ use malloc_size_of_derive::MallocSizeOf;
 use paint_api::CrossProcessPaintApi;
 use pixels::{CorsStatus, ImageMetadata, RasterImage};
 use profile_traits::mem::Report;
+// Share the SVG renderer's rasterization types with consumers such as text masks.
+pub use resvg::tiny_skia;
 use resvg::usvg::{Font, fontdb};
 use serde::{Deserialize, Serialize};
 use servo_base::id::{PipelineId, WebViewId};

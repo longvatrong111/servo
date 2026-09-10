@@ -14,6 +14,8 @@ use fonts::{
 };
 use icu_locale_core::subtags::Language;
 use servo_url::ServoUrl;
+use skrifa::MetadataProvider;
+use skrifa::prelude::{LocationRef, Size};
 use style::computed_values::font_optical_sizing::T as FontOpticalSizing;
 use style::computed_values::font_variant_position::T as FontVariantPosition;
 use style::properties::longhands::font_variant_caps::computed_value::T as FontVariantCaps;
@@ -47,6 +49,81 @@ fn make_font(path: PathBuf) -> Font {
         optical_sizing: FontOpticalSizing::Auto,
     };
     Font::new(FontTemplateRef::new(template), descriptor, Some(data), None).unwrap()
+}
+
+fn rasterization_test_font() -> Font {
+    make_font(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf"),
+    )
+}
+
+#[test]
+fn test_rasterize_glyph_coverage_and_bearings() {
+    let font = rasterization_test_font();
+    for character in ['A', 'O', 'j', 'g'] {
+        let glyph = font
+            .rasterize_glyph(font.glyph_index(character).unwrap(), 32.0)
+            .unwrap();
+        assert!(glyph.width > 0 && glyph.height > 0);
+        assert_eq!(glyph.coverage.len(), (glyph.width * glyph.height) as usize);
+        assert!(glyph.coverage.contains(&0));
+        assert!(glyph.coverage.contains(&255));
+        assert!(glyph.coverage.iter().any(|&value| value > 0 && value < 255));
+        assert!(glyph.top < 0, "ascenders must lie above the baseline");
+        if character == 'j' {
+            assert!(glyph.left < 0, "negative left bearings must be preserved");
+        }
+        if character == 'g' {
+            assert!(glyph.top + glyph.height as i32 > 0, "descenders must lie below the baseline");
+        }
+        if character == 'O' {
+            let center = ((glyph.height / 2) * glyph.width + glyph.width / 2) as usize;
+            assert_eq!(glyph.coverage[center], 0, "glyph counters must remain empty");
+        }
+    }
+}
+
+#[test]
+fn test_rasterize_glyph_uses_pixels_per_em() {
+    let font = rasterization_test_font();
+    let data = font.font_data_and_index().ok().expect("Missing test font data");
+    let face = skrifa::FontRef::from_index(data.data.as_ref(), data.index).unwrap();
+    // E has only straight edges, so its control bounds equal its ink bounds.
+    let glyph_id = font.glyph_index('E').unwrap();
+    for size in [16.0, 32.0, 47.5] {
+        let bounds = face
+            .glyph_metrics(Size::new(size), LocationRef::default())
+            .bounds(skrifa::GlyphId::new(glyph_id))
+            .unwrap();
+        let glyph = font.rasterize_glyph(glyph_id, size).unwrap();
+        assert_eq!(glyph.left, bounds.x_min.floor() as i32);
+        assert_eq!(glyph.top, (-bounds.y_max).floor() as i32);
+        assert_eq!(glyph.width, (bounds.x_max.ceil() - bounds.x_min.floor()) as u32);
+        assert_eq!(glyph.height, ((-bounds.y_min).ceil() - (-bounds.y_max).floor()) as u32);
+    }
+}
+
+#[test]
+fn test_rasterize_glyph_empty_and_invalid_inputs() {
+    let font = rasterization_test_font();
+    assert!(font.rasterize_glyph(font.glyph_index(' ').unwrap(), 32.0).is_none());
+    assert!(font.rasterize_glyph(u32::MAX, 32.0).is_none());
+    let glyph_id = font.glyph_index('A').unwrap();
+    for size in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+        assert!(font.rasterize_glyph(glyph_id, size).is_none());
+    }
+}
+
+#[test]
+fn test_rasterize_glyph_reuses_font_data() {
+    let font = rasterization_test_font();
+    let glyph_id = font.glyph_index('A').unwrap();
+    let first = font.rasterize_glyph(glyph_id, 24.0).unwrap();
+    let second = font.rasterize_glyph(glyph_id, 24.0).unwrap();
+    assert_eq!((first.left, first.top), (second.left, second.top));
+    assert_eq!((first.width, first.height), (second.width, second.height));
+    assert_eq!(first.coverage, second.coverage);
 }
 
 #[test]

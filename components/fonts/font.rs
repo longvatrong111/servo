@@ -9,7 +9,6 @@ use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 use std::{iter, str};
 
-use ab_glyph::{Font as _, VariableFont as _};
 use app_units::Au;
 use atomic_refcell::AtomicRef;
 use bitflags::bitflags;
@@ -21,6 +20,7 @@ use icu_locale_core::subtags::Language;
 use icu_properties::props::{EnumeratedProperty, GeneralCategory};
 use log::debug;
 use malloc_size_of_derive::MallocSizeOf;
+use net_traits::image_cache::tiny_skia;
 use parking_lot::RwLock;
 use read_fonts::collections::int_set::Domain;
 use read_fonts::tables::fvar::Fvar;
@@ -32,6 +32,9 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_base::id::PainterId;
 use servo_base::text::{UnicodeBlock, UnicodeBlockMethod};
+use skrifa::MetadataProvider;
+use skrifa::outline::{DrawSettings, OutlinePen};
+use skrifa::prelude::Size;
 use skrifa::string::LocalizedString;
 use smallvec::SmallVec;
 use style::Atom;
@@ -280,10 +283,6 @@ pub struct Font {
     /// This might be uninitialized for system fonts.
     data_and_index: OnceLock<FontDataAndIndex>,
 
-    /// A parsed font used to rasterize glyph outlines for the display list,
-    /// loaded and parsed lazily.
-    outlined_glyph_font: OnceLock<Option<ab_glyph::FontVec>>,
-
     shaper: OnceLock<Shaper>,
     cached_shape_data: RwLock<CachedShapeData>,
     font_instance_key: RwLock<FxHashMap<PainterId, FontInstanceKey>>,
@@ -386,7 +385,6 @@ impl Font {
             data_and_index: data
                 .map(|data| OnceLock::from(FontDataAndIndex { data, index: 0 }))
                 .unwrap_or_default(),
-            outlined_glyph_font: OnceLock::new(),
             shaper: OnceLock::new(),
             cached_shape_data: Default::default(),
             font_instance_key: Default::default(),
@@ -422,8 +420,8 @@ impl Font {
             .or_insert_with(|| font_context.create_font_instance_key(self, painter_id))
     }
 
-    /// Return the data for this `Font`. Note that this is currently highly inefficient for system
-    /// fonts and should not be used except in legacy canvas code.
+    /// Return the data for this `Font`, loading and caching system font data on first use.
+    /// Loading system font data is expensive; prefer the platform font APIs when possible.
     pub fn font_data_and_index(&self) -> Result<&FontDataAndIndex, FontDataError> {
         if let Some(data_and_index) = self.data_and_index.get() {
             return Ok(data_and_index);
@@ -440,69 +438,99 @@ impl Font {
         Ok(data_and_index)
     }
 
-    /// Outline and rasterize glyphs. The font bytes and face index are taken from the cached
-    /// `data_and_index` if available, otherwise loaded from the local font identifier.
-    /// Returns `None` if the font data cannot be loaded or parsed by `ab_glyph`.
-    fn outline_font(&self) -> Option<&ab_glyph::FontVec> {
-        self.outlined_glyph_font
-            .get_or_init(|| {
-                let (data, index) = match self.data_and_index.get() {
-                    Some(data_and_index) => {
-                        (data_and_index.data.as_ref().to_vec(), data_and_index.index)
-                    },
-                    None => {
-                        let FontIdentifier::Local(local_font_identifier) = &*self.identifier()
-                        else {
-                            return None;
-                        };
-                        let data_and_index = local_font_identifier.font_data_and_index()?;
-                        (data_and_index.data.as_ref().to_vec(), data_and_index.index)
-                    },
-                };
-                let mut font = ab_glyph::FontVec::try_from_vec_and_index(data, index).ok()?;
-
-                for variation in self.variations() {
-                    font.set_variation(&variation.tag.to_be_bytes(), variation.value);
-                }
-                Some(font)
-            })
-            .as_ref()
-    }
-
     pub(crate) fn variations(&self) -> &[FontVariation] {
         self.handle.variations()
     }
 
+    /// Rasterize an already-shaped glyph into an unhinted alpha mask. `size` is the
+    /// font size in device pixels per em. Bearings are relative to the baseline in
+    /// coordinates with Y increasing downwards, as expected by the display list.
+    /// Returns `None` for unavailable outlines, invalid sizes, or allocation failures.
     pub fn rasterize_glyph(&self, glyph_id: u32, size: f32) -> Option<RasterizedGlyph> {
-        let font = self.outline_font()?;
-
-        let glyph = ab_glyph::GlyphId(glyph_id as u16).with_scale(size);
-        let outlined = font.outline_glyph(glyph)?;
-        let bounds = outlined.px_bounds();
-        let width = bounds.width().ceil() as u32;
-        let height = bounds.height().ceil() as u32;
-
-        if width == 0 || height == 0 {
+        if !size.is_finite() || size <= 0.0 {
             return None;
         }
 
-        let mut coverage = vec![0u8; (width * height) as usize];
+        let data_and_index = self.font_data_and_index().ok()?;
+        let font =
+            skrifa::FontRef::from_index(data_and_index.data.as_ref(), data_and_index.index)
+                .ok()?;
+        let outlines = font.outline_glyphs();
+        let outline = outlines.get(skrifa::GlyphId::new(glyph_id))?;
+        let location = font
+            .axes()
+            .location(self.variations().iter().map(|variation| {
+                (
+                    skrifa::Tag::from_be_bytes(variation.tag.to_be_bytes()),
+                    variation.value,
+                )
+            }));
+        let mut pen = GlyphOutlinePen(tiny_skia::PathBuilder::new());
+        outline
+            .draw(DrawSettings::unhinted(Size::new(size), &location), &mut pen)
+            .ok()?;
+        let path = pen.0.finish()?;
+        let bounds = path.bounds();
+        let left = bounds.left().floor();
+        let top = bounds.top().floor();
+        let right = bounds.right().ceil();
+        let bottom = bounds.bottom().ceil();
 
-        outlined.draw(|x, y, c| {
-            let index = (y * width + x) as usize;
-
-            if index < coverage.len() {
-                coverage[index] = (c * 255.0 + 0.5) as u8;
-            }
-        });
+        // The display-list blitter uses signed coordinates. Reject bounds that
+        // cannot be represented instead of saturating float-to-integer casts.
+        if [left, top, right, bottom].iter().any(|&edge| {
+            f64::from(edge) < f64::from(i32::MIN) || f64::from(edge) > f64::from(i32::MAX)
+        }) {
+            return None;
+        }
+        let bounds =
+            tiny_skia::IntRect::from_ltrb(left as i32, top as i32, right as i32, bottom as i32)?;
+        let width = bounds.width();
+        let height = bounds.height();
+        let length = usize::try_from(width.checked_mul(height)?).ok()?;
+        let mut coverage = Vec::new();
+        coverage.try_reserve_exact(length).ok()?;
+        coverage.resize(length, 0);
+        let mut mask = tiny_skia::Mask::from_vec(coverage, bounds.size())?;
+        mask.fill_path(
+            &path,
+            tiny_skia::FillRule::Winding,
+            true,
+            tiny_skia::Transform::from_translate(-left, -top),
+        );
 
         Some(RasterizedGlyph {
-            left: bounds.min.x.floor() as i32,
-            top: bounds.min.y.floor() as i32,
+            left: bounds.left(),
+            top: bounds.top(),
             width,
             height,
-            coverage,
+            coverage: mask.take(),
         })
+    }
+}
+
+/// Convert font outlines from Y-up font coordinates to Y-down mask coordinates.
+struct GlyphOutlinePen(tiny_skia::PathBuilder);
+
+impl OutlinePen for GlyphOutlinePen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to(x, -y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to(x, -y);
+    }
+
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.0.quad_to(cx, -cy, x, -y);
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.cubic_to(cx0, -cy0, cx1, -cy1, x, -y);
+    }
+
+    fn close(&mut self) {
+        self.0.close();
     }
 }
 

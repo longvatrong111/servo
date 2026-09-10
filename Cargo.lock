@@ -8393,7 +8393,6 @@ dependencies = [
 name = "servo-fonts"
 version = "0.6.0"
 dependencies = [
- "ab_glyph",
  "app_units",
  "atomic_refcell",
  "bitflags 2.13.1",
