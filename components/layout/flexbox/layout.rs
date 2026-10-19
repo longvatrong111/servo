@@ -221,16 +221,57 @@ impl FlexLineItem<'_> {
             },
         );
 
+        // Baselines are relative to the block-start edge of the item's margin box. Translate them
+        // using the flow-relative position of the item in its line, which accounts for reversed
+        // (`wrap-reverse`) cross axes and for the main-axis position in column containers.
+        let flow_relative_margin_block_start = content_rect.start_corner.block -
+            flex_context
+                .sides_to_flow_relative(self.item.padding)
+                .block_start -
+            flex_context
+                .sides_to_flow_relative(self.item.border)
+                .block_start -
+            flex_context.sides_to_flow_relative(item_margin).block_start;
         let adjust_baseline = |baseline: Au| {
+            if cfg!(feature = "ht_ai_gen") {
+                return baseline + flow_relative_margin_block_start;
+            }
             baseline + item_content_cross_start_position -
                 self.item.border.cross_start -
                 self.item.padding.cross_start -
                 item_margin.cross_start
         };
 
-        let baselines = self
+        let mut baselines = self
             .layout_result
             .content_baselines_for_parent_relative_to_margin_box;
+
+        // > If that item has no alignment baseline parallel to the flex container’s main axis,
+        // > then one is first synthesized from its border edges.
+        // <https://drafts.csswg.org/css-flexbox/#flex-baselines>
+        // Scroll containers keep synthesizing their baseline from their own edges.
+        if cfg!(feature = "ht_ai_gen") &&
+            flex_context.config.flex_axis == FlexAxis::Row &&
+            !flex_context
+                .containing_block
+                .style
+                .establishes_scroll_container(FragmentFlags::empty()) &&
+            baselines.first.is_none() &&
+            baselines.last.is_none()
+        {
+            let border_box_block_end = flex_context.sides_to_flow_relative(item_margin).block_start +
+                content_rect.size.block +
+                flex_context
+                    .sides_to_flow_relative(self.item.padding)
+                    .block_sum() +
+                flex_context
+                    .sides_to_flow_relative(self.item.border)
+                    .block_sum();
+            baselines = Baselines {
+                first: Some(border_box_block_end),
+                last: Some(border_box_block_end),
+            };
+        }
         if flex_context.config.flex_direction_is_reversed {
             if let Some(last_baseline) = baselines.last {
                 all_baselines
@@ -422,7 +463,7 @@ impl ComputeInlineContentSizes for FlexContainer {
                     )
                 })
             },
-            FlexAxis::Column => self.cross_content_sizes(layout_context, &constraint_space.into()),
+            FlexAxis::Column => self.cross_content_sizes(layout_context, constraint_space),
         }
     }
 }
@@ -431,7 +472,7 @@ impl FlexContainer {
     fn cross_content_sizes(
         &self,
         layout_context: &LayoutContext,
-        containing_block_for_children: &IndefiniteContainingBlock,
+        constraint_space: &ConstraintSpace,
     ) -> InlineContentSizesResult {
         // <https://drafts.csswg.org/css-flexbox/#intrinsic-cross-sizes>
         assert_eq!(
@@ -439,14 +480,14 @@ impl FlexContainer {
             FlexAxis::Column,
             "The cross axis should be the inline one"
         );
+        let containing_block_for_children = &IndefiniteContainingBlock::from(constraint_space);
         let mut sizes = ContentSizes::zero();
         let mut depends_on_block_constraints = false;
+        let mut item_max_content_contributions = Vec::new();
         for kid in self.children.iter() {
             let kid = &*kid.borrow();
             match kid {
                 FlexLevelBox::FlexItem(item) => {
-                    // TODO: For the max-content size we should distribute items into
-                    // columns, and sum the column sizes and gaps.
                     // TODO: Use the proper automatic minimum size.
                     let ifc = &item.independent_formatting_context;
                     let result = ifc.outer_inline_content_sizes(
@@ -457,14 +498,140 @@ impl FlexContainer {
                     );
                     sizes.max_assign(result.sizes);
                     depends_on_block_constraints |= result.depends_on_block_constraints;
+                    item_max_content_contributions.push(result.sizes.max_content);
                 },
                 FlexLevelBox::OutOfFlowAbsolutelyPositionedBox(_) => {},
             }
         }
+
+        // For the max-content size of a multi-line container, distribute the items into
+        // columns, and sum the column sizes and gaps.
+        if cfg!(feature = "ht_ai_gen") && !self.config.container_is_single_line {
+            if let Some(max_content) = self.column_wrap_max_content_inline_size(
+                layout_context,
+                constraint_space,
+                containing_block_for_children,
+                &item_max_content_contributions,
+                sizes.max_content,
+            ) {
+                sizes.max_content = max_content;
+                depends_on_block_constraints = true;
+            }
+        }
+
         InlineContentSizesResult {
             sizes,
             depends_on_block_constraints,
         }
+    }
+
+    /// Compute the max-content inline size of a multi-line column flex container by collecting
+    /// its items into flex lines (columns) as layout would, and summing the largest max-content
+    /// contribution of each line plus the cross gaps between lines. Returns `None` if the items
+    /// can't wrap, because there's neither a definite nor a maximum block size, or if there are
+    /// fewer than two items, in which case the largest max-content contribution is the answer.
+    /// <https://drafts.csswg.org/css-flexbox/#intrinsic-cross-sizes>
+    fn column_wrap_max_content_inline_size(
+        &self,
+        layout_context: &LayoutContext,
+        constraint_space: &ConstraintSpace,
+        containing_block_for_children: &IndefiniteContainingBlock,
+        item_max_content_contributions: &[Au],
+        largest_max_content_contribution: Au,
+    ) -> Option<Au> {
+        let wrap_threshold = match constraint_space.block_size {
+            SizeConstraint::Definite(block_size) => block_size,
+            SizeConstraint::MinMax(_, max_block_size) => max_block_size?,
+        };
+        if item_max_content_contributions.len() < 2 {
+            return None;
+        }
+
+        // The items are sized as if the flex container had the inline size of its widest
+        // item, so that `fit-content` items get their max-content inline size.
+        let containing_block = ContainingBlock {
+            size: ContainingBlockSize {
+                inline: largest_max_content_contribution,
+                block: constraint_space.block_size,
+            },
+            style: &self.style,
+        };
+        let flex_context = FlexContext {
+            config: self.config.clone(),
+            layout_context,
+            containing_block: &containing_block,
+            container_inner_size_constraint: self.config.flex_axis.vec2_to_flex_relative(
+                LogicalVec2 {
+                    inline: SizeConstraint::Definite(largest_max_content_contribution),
+                    block: constraint_space.block_size,
+                },
+            ),
+        };
+
+        let main_gap = match self.style.clone_row_gap() {
+            LengthPercentageOrNormal::LengthPercentage(length_percentage) => length_percentage
+                .to_used_value(
+                    constraint_space
+                        .block_size
+                        .to_definite()
+                        .unwrap_or_default(),
+                ),
+            LengthPercentageOrNormal::Normal => Au::zero(),
+        };
+        let cross_gap = match self.style.clone_column_gap() {
+            LengthPercentageOrNormal::LengthPercentage(length_percentage) => {
+                length_percentage.to_used_value(Au::zero())
+            },
+            LengthPercentageOrNormal::Normal => Au::zero(),
+        };
+
+        let mut sum_of_line_cross_sizes = Au::zero();
+        let mut line_count = 0;
+        let mut line_main_size = Au::zero();
+        let mut line_cross_size = Au::zero();
+        let mut line_is_empty = true;
+        let mut max_content_contributions = item_max_content_contributions.iter();
+        for kid in self.children.iter() {
+            let kid = &*kid.borrow();
+            let FlexLevelBox::FlexItem(item) = kid else {
+                continue;
+            };
+            let Some(max_content_contribution) = max_content_contributions.next() else {
+                break;
+            };
+            let content_box_sizes_and_pbm = item
+                .independent_formatting_context
+                .layout_style()
+                .content_box_sizes_and_padding_border_margin(containing_block_for_children);
+            let flex_item = item.to_flex_item(
+                layout_context,
+                containing_block_for_children,
+                &content_box_sizes_and_pbm,
+                &self.config,
+                &|| &flex_context,
+            );
+            let item_main_size = flex_item.hypothetical_main_size + flex_item.pbm_auto_is_zero.main;
+            if line_is_empty {
+                line_main_size = item_main_size;
+                line_cross_size = *max_content_contribution;
+                line_is_empty = false;
+                continue;
+            }
+            let line_main_size_would_be = line_main_size + main_gap + item_main_size;
+            if line_main_size_would_be <= wrap_threshold {
+                line_main_size = line_main_size_would_be;
+                line_cross_size.max_assign(*max_content_contribution);
+            } else {
+                sum_of_line_cross_sizes += line_cross_size;
+                line_count += 1;
+                line_main_size = item_main_size;
+                line_cross_size = *max_content_contribution;
+            }
+        }
+        sum_of_line_cross_sizes += line_cross_size;
+        line_count += 1;
+
+        Some(sum_of_line_cross_sizes + cross_gap * (line_count - 1))
     }
 
     fn main_content_sizes<'a>(
@@ -634,17 +801,34 @@ impl FlexContainer {
             ),
         };
 
+        // A multi-line column container whose block size is indefinite but which has a
+        // definite maximum block size wraps its items when they reach that maximum, and then
+        // takes the main size of its largest line (clamped by its min and max block sizes),
+        // like Gecko does.
+        let indefinite_column_wrap_threshold =
+            match flex_context.container_inner_size_constraint.main {
+                SizeConstraint::MinMax(_, Some(max_main_size))
+                    if cfg!(feature = "ht_ai_gen") &&
+                        self.config.flex_axis == FlexAxis::Column &&
+                        !self.config.container_is_single_line =>
+                {
+                    Some(max_main_size)
+                },
+                _ => None,
+            };
+
         // “Determine the main size of the flex container”
         // https://drafts.csswg.org/css-flexbox/#algo-main-container
         let container_main_size = match self.config.flex_axis {
-            FlexAxis::Row => containing_block.size.inline,
-            FlexAxis::Column => lazy_block_size.resolve(|| {
+            FlexAxis::Row => Some(containing_block.size.inline),
+            FlexAxis::Column if indefinite_column_wrap_threshold.is_some() => None,
+            FlexAxis::Column => Some(lazy_block_size.resolve(|| {
                 let mut containing_block = IndefiniteContainingBlock::from(containing_block);
                 containing_block.size.block = None;
                 self.main_content_sizes(layout_context, &containing_block, || &flex_context)
                     .sizes
                     .max_content
-            }),
+            })),
         };
 
         // Actual length may be less, but we guess that usually not by a lot
@@ -713,12 +897,35 @@ impl FlexContainer {
 
         // “Resolve the flexible lengths of all the flex items to find their *used main size*.”
         // https://drafts.csswg.org/css-flexbox/#algo-flex
-        let initial_line_layouts = do_initial_flex_line_layout(
-            &mut flex_context,
-            container_main_size,
-            flex_items,
-            main_gap,
-        );
+        let (container_main_size, initial_line_layouts) = match container_main_size {
+            Some(container_main_size) => (
+                container_main_size,
+                do_initial_flex_line_layout(
+                    &mut flex_context,
+                    container_main_size,
+                    flex_items,
+                    main_gap,
+                ),
+            ),
+            None => {
+                let lines = collect_flex_lines(
+                    false, /* container_is_single_line */
+                    indefinite_column_wrap_threshold,
+                    flex_items,
+                    main_gap,
+                );
+                let largest_line_main_size = lines
+                    .iter()
+                    .map(|(_, line_main_size)| *line_main_size)
+                    .max()
+                    .unwrap_or_default();
+                let container_main_size = lazy_block_size.resolve(|| largest_line_main_size);
+                (
+                    container_main_size,
+                    layout_flex_lines(&mut flex_context, container_main_size, lines, main_gap),
+                )
+            },
+        };
 
         let line_count = initial_line_layouts.len();
         let content_cross_size = initial_line_layouts
@@ -815,6 +1022,17 @@ impl FlexContainer {
             _ => Au::zero(),
         };
 
+        // The container's first and last baselines come from its startmost and endmost flex
+        // lines in the cross axis. With `flex-wrap: wrap-reverse` the cross axis is reversed,
+        // so the startmost line is the last one in order-modified document order.
+        // <https://drafts.csswg.org/css-flexbox/#flex-baselines>
+        let (first_baseline_line_index, last_baseline_line_index) =
+            if cfg!(feature = "ht_ai_gen") && flex_wrap_is_reversed {
+                (num_lines - 1, 0)
+            } else {
+                (0, num_lines - 1)
+            };
+
         let inline_axis_is_main_axis = self.config.flex_axis == FlexAxis::Row;
         let mut baseline_alignment_participating_baselines = Baselines::default();
         let mut all_baselines = Baselines::default();
@@ -873,11 +1091,11 @@ impl FlexContainer {
                     let line_shared_alignment_baseline = final_line_layout
                         .shared_alignment_baseline
                         .map(|baseline| baseline + flow_relative_line_position.block);
-                    if index == 0 {
+                    if index == first_baseline_line_index {
                         baseline_alignment_participating_baselines.first =
                             line_shared_alignment_baseline;
                     }
-                    if index == num_lines - 1 {
+                    if index == last_baseline_line_index {
                         baseline_alignment_participating_baselines.last =
                             line_shared_alignment_baseline;
                     }
@@ -886,10 +1104,10 @@ impl FlexContainer {
                 let line_all_baselines = final_line_layout
                     .all_baselines
                     .offset(flow_relative_line_position.block);
-                if index == 0 {
+                if index == first_baseline_line_index {
                     all_baselines.first = line_all_baselines.first;
                 }
-                if index == num_lines - 1 {
+                if index == last_baseline_line_index {
                     all_baselines.last = line_all_baselines.last;
                 }
 
@@ -1135,25 +1353,37 @@ fn item_with_auto_cross_size_stretches_to_line_size(
 fn do_initial_flex_line_layout<'items>(
     flex_context: &mut FlexContext,
     container_main_size: Au,
-    mut items: Vec<FlexItem<'items>>,
+    items: Vec<FlexItem<'items>>,
     main_gap: Au,
 ) -> Vec<InitialFlexLineLayout<'items>> {
-    let construct_line = |(items, outer_hypothetical_main_size)| {
-        InitialFlexLineLayout::new(
-            flex_context,
-            items,
-            outer_hypothetical_main_size,
-            container_main_size,
-            main_gap,
-        )
-    };
+    let lines = collect_flex_lines(
+        flex_context.config.container_is_single_line,
+        Some(container_main_size),
+        items,
+        main_gap,
+    );
+    layout_flex_lines(flex_context, container_main_size, lines, main_gap)
+}
 
-    if flex_context.config.container_is_single_line {
+/// The items of a flex line, together with the sum of their outer hypothetical main
+/// sizes and the main gaps between them.
+type CollectedFlexLine<'items> = (Vec<FlexItem<'items>>, Au);
+
+/// Split the flex items into flex lines, wrapping when a line would exceed
+/// `wrap_threshold`. A `wrap_threshold` of `None` means that lines never wrap.
+/// <https://drafts.csswg.org/css-flexbox/#algo-line-break>
+fn collect_flex_lines(
+    container_is_single_line: bool,
+    wrap_threshold: Option<Au>,
+    mut items: Vec<FlexItem<'_>>,
+    main_gap: Au,
+) -> Vec<CollectedFlexLine<'_>> {
+    if container_is_single_line {
         let outer_hypothetical_main_sizes_sum = items
             .iter()
             .map(|item| item.hypothetical_main_size + item.pbm_auto_is_zero.main)
             .sum();
-        return vec![construct_line((items, outer_hypothetical_main_sizes_sum))];
+        return vec![(items, outer_hypothetical_main_sizes_sum)];
     }
 
     let mut lines = Vec::new();
@@ -1167,7 +1397,7 @@ fn do_initial_flex_line_layout<'items>(
         if !line_so_far_is_empty {
             line_size_would_be += main_gap;
         }
-        let item_fits = line_size_would_be <= container_main_size;
+        let item_fits = wrap_threshold.is_none_or(|threshold| line_size_would_be <= threshold);
         if item_fits || line_so_far_is_empty {
             line_size_so_far = line_size_would_be;
             line_so_far_is_empty = false;
@@ -1187,6 +1417,30 @@ fn do_initial_flex_line_layout<'items>(
 
     // We didn't reach the end of the last line, so add all remaining items there.
     lines.push((items, line_size_so_far));
+    lines
+}
+
+/// Do the initial layout of each flex line, once the items have been collected into lines
+/// and the main size of the flex container is known.
+fn layout_flex_lines<'items>(
+    flex_context: &mut FlexContext,
+    container_main_size: Au,
+    mut lines: Vec<CollectedFlexLine<'items>>,
+    main_gap: Au,
+) -> Vec<InitialFlexLineLayout<'items>> {
+    let construct_line = |(items, outer_hypothetical_main_size)| {
+        InitialFlexLineLayout::new(
+            flex_context,
+            items,
+            outer_hypothetical_main_size,
+            container_main_size,
+            main_gap,
+        )
+    };
+
+    if lines.len() == 1 {
+        return lines.into_iter().map(construct_line).collect();
+    }
 
     let job_sizes = lines
         .iter()

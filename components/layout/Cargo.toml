@@ -16,6 +16,8 @@ test = true
 doctest = false
 
 [features]
+# Experiment-scoped umbrella feature (fork only). When disabled, layout behaves as stock servo.
+ht_ai_gen = []
 tracing = ["dep:tracing"]
 
 [dependencies]
