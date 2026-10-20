@@ -249,9 +249,12 @@ impl FlexLineItem<'_> {
         // > If that item has no alignment baseline parallel to the flex container’s main axis,
         // > then one is first synthesized from its border edges.
         // <https://drafts.csswg.org/css-flexbox/#flex-baselines>
-        // Scroll containers keep synthesizing their baseline from their own edges.
+        // This is limited to multi-line containers, where the line that provides the baseline
+        // depends on `flex-wrap`. Scroll containers keep synthesizing their baseline from their
+        // own edges.
         if cfg!(feature = "ht_ai_gen") &&
             flex_context.config.flex_axis == FlexAxis::Row &&
+            !flex_context.config.container_is_single_line &&
             !flex_context
                 .containing_block
                 .style
